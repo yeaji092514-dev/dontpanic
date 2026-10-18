@@ -1,0 +1,1545 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>공황발작 감지 센서</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+/* Layout: menu → 현재 상태(입력·현재 위치·지금 상태) / 내 정보 / 데이터 쌓기 현황, plus a locked alarm screen. */
+:root{
+  --bg:#F3F6F7; --surface:#FFFFFF; --sunk:#E9EEF0; --ink:#13212A; --muted:#566871; --line:#D5DDE1;
+  --space:#0D6A72; --space-soft:#DAECEE; --body:#6B4A93; --body-soft:#ECE5F4;
+  --ok:#2C7A4C; --ok-soft:#DCEFE3; --warn:#8F5600; --warn-soft:#F6E8D2; --alert:#B03636; --alert-soft:#F6DEDE;
+  --accent:#0D6A72; --accent-ink:#FFFFFF;
+  --f-body:"IBM Plex Sans KR",-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+  --r:10px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E161B; --surface:#152128; --sunk:#1B2A32; --ink:#E2EBEE; --muted:#93A5AE; --line:#26363F;
+  --space:#5DBDC5; --space-soft:#163A3E; --body:#B89BE0; --body-soft:#2A2238;
+  --ok:#6EC290; --ok-soft:#173528; --warn:#E3AA4E; --warn-soft:#3A2C14; --alert:#E58080; --alert-soft:#3D1D1D;
+  --accent:#5DBDC5; --accent-ink:#06282B; color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0E161B; --surface:#152128; --sunk:#1B2A32; --ink:#E2EBEE; --muted:#93A5AE; --line:#26363F;
+  --space:#5DBDC5; --space-soft:#163A3E; --body:#B89BE0; --body-soft:#2A2238;
+  --ok:#6EC290; --ok-soft:#173528; --warn:#E3AA4E; --warn-soft:#3A2C14; --alert:#E58080; --alert-soft:#3D1D1D;
+  --accent:#5DBDC5; --accent-ink:#06282B; color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{color-scheme:light}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.55;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 56px}
+.wrap{max-width:1120px;margin:0 auto;display:flex;flex-direction:column;gap:36px}
+h1,h2,h3{margin:0;text-wrap:balance;line-height:1.25}
+p{margin:0}
+.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+
+header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:16px 24px}
+.title{display:flex;flex-direction:column;gap:6px;min-width:0}
+.title small{font-family:var(--f-mono);font-size:12.5px;color:var(--space);letter-spacing:.06em}
+h1{font-size:clamp(24px,4vw,32px);font-weight:700;letter-spacing:-.01em}
+.lede{color:var(--muted);max-width:64ch}
+.tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+
+.btn{font:inherit;font-weight:600;border-radius:8px;padding:10px 18px;border:1px solid transparent;cursor:pointer;background:var(--accent);color:var(--accent-ink)}
+.btn:hover{filter:brightness(1.06)}
+.btn.ghost{background:var(--surface);color:var(--ink);border-color:var(--line);font-weight:500}
+.btn.small{padding:6px 11px;font-size:13px}
+.btn.danger{background:var(--alert-soft);color:var(--alert);border-color:transparent}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+
+section{display:flex;flex-direction:column;gap:16px}
+.sec-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.step{font-family:var(--f-mono);font-size:13px;color:var(--accent);font-weight:500}
+h2{font-size:20px;font-weight:700}
+.hint{color:var(--muted);font-size:13.5px}
+.toast{font-size:13.5px;color:var(--ok);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.toast:empty{display:none}
+.toast.bad{color:var(--alert)}
+
+/* 메뉴 */
+.home{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:14px}
+.nav-card{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;gap:10px;padding:22px 22px 20px;border-radius:14px;background:var(--surface);border:1.5px solid var(--line);min-width:0;transition:border-color .15s,transform .15s}
+.nav-card:hover{border-color:var(--accent);transform:translateY(-2px)}
+.nav-card:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.nav-card .k{font-family:var(--f-mono);font-size:12.5px;color:var(--accent);letter-spacing:.05em}
+.nav-card h2{font-size:22px}
+.nav-card p{color:var(--muted);font-size:14px}
+.nav-card .live{margin-top:auto;padding-top:12px;border-top:1px solid var(--line);font-size:13.5px;display:flex;align-items:center;gap:8px;color:var(--ink)}
+.nav-card .go{font-size:13px;color:var(--accent);font-weight:600}
+.dot{width:9px;height:9px;border-radius:50%;flex:none;background:var(--muted);display:inline-block}
+.dot.calm{background:var(--ok)}.dot.space{background:var(--warn)}.dot.both{background:var(--alert)}.dot.body{background:var(--body)}
+.dot.run{background:var(--ok);animation:pulse 1.6s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 60%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+.view-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.back{all:unset;cursor:pointer;font-size:14px;font-weight:600;color:var(--accent);display:inline-flex;align-items:center;gap:6px;padding:6px 10px 6px 4px;border-radius:8px}
+.back:hover{background:var(--sunk)}
+.back:focus-visible{outline:2px solid var(--accent)}
+.view-head h2{font-size:24px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
+.tab{all:unset;cursor:pointer;font-size:13px;padding:6px 12px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--surface)}
+.tab[aria-current="page"]{border-color:var(--accent);color:var(--accent);font-weight:600}
+.tab:focus-visible{outline:2px solid var(--accent)}
+
+/* 자동 입력 */
+.auto-bar{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;justify-content:space-between;padding:14px 16px;border-radius:var(--r);background:var(--sunk)}
+.auto-state{display:flex;align-items:center;gap:10px;font-size:14.5px;font-weight:600}
+.auto-state small{font-weight:400;color:var(--muted);font-size:13px}
+.auto-btns{display:flex;flex-wrap:wrap;gap:8px}
+
+/* 현재 위치 */
+.loc{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+.loc-head{display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center}
+.loc-head b{font-size:15.5px}
+.ctx-box{border-radius:10px;padding:12px 14px;border:1.5px solid var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--surface));display:flex;flex-direction:column;gap:6px}
+.ctx-box small{font-size:12px;color:var(--muted)}
+.ctx-box b{font-size:17px}
+.ctx-row{display:flex;flex-direction:column;gap:2px}
+.ctx-row+.ctx-row{border-top:1px solid color-mix(in srgb,var(--accent) 25%,transparent);padding-top:8px}
+.ctx-body{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:14px}
+.ctx-body .same{color:var(--muted)}
+#demoBtn.on{background:var(--alert);border-color:var(--alert);color:#fff}
+.ctx-box ul{margin:0;padding-left:1.2em;font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:2px}
+.map{height:min(60vh,380px);border-radius:10px;border:1px solid var(--line);z-index:0;background:var(--sunk)}
+.map-legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px;color:var(--muted);margin-top:6px}
+.map-legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.leaflet-container{font-family:var(--f-body)}
+
+/* 입력 */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:20px;display:flex;flex-direction:column;gap:18px}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+fieldset{border:1px solid var(--line);border-radius:var(--r);padding:14px 16px 16px;margin:0;display:flex;flex-direction:column;gap:12px;min-width:0}
+legend{font-weight:700;font-size:14.5px;padding:0 6px;display:flex;align-items:center;gap:8px}
+legend::before{content:"";width:9px;height:9px;border-radius:2px;background:var(--c)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
+.field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.field label{font-size:13.5px;font-weight:600;display:flex;flex-direction:column}
+.field label small{font-weight:400;color:var(--muted);font-size:11.5px}
+.inwrap{position:relative;display:flex;align-items:center}
+input,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 11px;width:100%;min-width:0}
+input[type=number]{font-family:var(--f-mono);font-variant-numeric:tabular-nums;padding-right:58px}
+.unit-in{position:absolute;right:10px;font-size:12px;color:var(--muted);pointer-events:none;font-family:var(--f-mono)}
+input:focus,select:focus{outline:2px solid var(--accent);outline-offset:0;border-color:transparent}
+input[aria-invalid="true"]{border-color:var(--alert);background:var(--alert-soft)}
+input[readonly]{background:var(--sunk)}
+input.fresh{animation:fresh .9s ease-out}
+@keyframes fresh{from{background:color-mix(in srgb,var(--accent) 22%,var(--sunk))}to{background:var(--sunk)}}
+.tag{white-space:nowrap;display:inline-block;font-size:10.5px;font-weight:600;padding:1px 6px;border-radius:4px;background:var(--accent);color:var(--accent-ink);margin-left:6px;vertical-align:1px}
+.err{font-size:12px;color:var(--alert)}
+.form-foot{display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center}
+.form-foot .hint{max-width:56ch}
+
+/* 접기 */
+details.fold{background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+details.fold>summary{cursor:pointer;list-style:none;padding:16px 18px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+details.fold>summary::-webkit-details-marker{display:none}
+details.fold>summary b{font-size:15.5px}
+details.fold>summary span{font-size:13.5px;color:var(--muted)}
+details.fold>summary::after{content:"펼치기 ▾";font-size:13px;font-weight:600;color:var(--accent)}
+details.fold[open]>summary::after{content:"접기 ▴"}
+details.fold>summary:focus-visible{outline:2px solid var(--accent);border-radius:var(--r)}
+details.fold .fold-body{padding:0 18px 18px;display:flex;flex-direction:column;gap:12px}
+details.fold.sub{background:var(--bg)}
+details.fold.sub>summary{padding:12px 14px}
+details.fold.sub .fold-body{padding:0 14px 14px}
+
+/* 지금 상태 */
+.status{border-radius:var(--r);padding:18px 20px;display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);background:var(--surface)}
+.status h3{font-size:18px}
+.status p{color:var(--muted);font-size:14px}
+.status.calm{border-color:color-mix(in srgb,var(--ok) 40%,var(--line));background:var(--ok-soft)}
+.status.calm h3{color:var(--ok)}
+.status.space{border-color:color-mix(in srgb,var(--warn) 40%,var(--line));background:var(--warn-soft)}
+.status.space h3{color:var(--warn)}
+.status.both{border-color:color-mix(in srgb,var(--alert) 45%,var(--line));background:var(--alert-soft)}
+.status.both h3{color:var(--alert)}
+.status.body h3{color:var(--body)}
+.status .when{font-family:var(--f-mono);font-size:12.5px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:9px;height:9px;border-radius:50%;display:inline-block}
+.group-title{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px}
+.group-title::before{content:"";width:10px;height:10px;border-radius:3px;background:var(--c)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,250px),1fr));gap:10px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.card.flag-space{border-color:var(--warn);box-shadow:inset 0 3px 0 var(--warn)}
+.card.flag-tense{border-color:var(--alert);box-shadow:inset 0 3px 0 var(--alert)}
+.card.flag-change{border-color:var(--body);box-shadow:inset 0 3px 0 var(--body)}
+.card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.card-name{display:flex;flex-direction:column;min-width:0}
+.card-name b{font-size:14.5px}
+.card-name small{font-size:12px;color:var(--muted)}
+.badge{font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap;background:var(--sunk);color:var(--muted)}
+.badge.space{background:var(--warn-soft);color:var(--warn)}
+.badge.tense{background:var(--alert-soft);color:var(--alert)}
+.badge.change{background:var(--body-soft);color:var(--body)}
+.badge.calm{background:var(--ok-soft);color:var(--ok)}
+.compare{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.compare .before{color:var(--muted);font-size:14px}
+.compare .arrow{color:var(--muted)}
+.compare .now{font-size:21px;font-weight:500}
+.compare .unit{font-size:12px;color:var(--muted);font-family:var(--f-body)}
+.delta{font-size:13px;font-family:var(--f-mono)}
+.spark{display:block;width:100%;height:30px}
+.card .basis{font-size:11.5px;color:var(--muted)}
+
+/* 데이터 쌓기 */
+.prog{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr));gap:10px}
+.dev{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--c);border-radius:var(--r);padding:12px 14px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.dev-top{display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap}
+.dev-top b{font-size:14px}
+.dev-top span{font-family:var(--f-mono);font-size:13px;color:var(--muted)}
+.dev-top span.done{color:var(--ok);font-weight:500}
+.dev small{font-size:12px;color:var(--muted)}
+.bar{height:6px;border-radius:3px;background:var(--sunk);overflow:hidden}
+.bar>i{display:block;height:100%;background:var(--c);border-radius:3px}
+.ev-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.ev-list li{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;padding:10px 0;border-top:1px solid var(--line);font-size:14px}
+.ev-list li:first-child{border-top:0}
+.ev-list .when{font-family:var(--f-mono);font-size:13px;color:var(--muted);min-width:120px}
+
+/* 표 */
+.tbl-wrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;font-weight:600;color:var(--muted);background:var(--sunk);white-space:nowrap}
+td.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+td .sub{display:block;font-size:11.5px;color:var(--muted);font-family:var(--f-body)}
+.danger{color:var(--alert);font-weight:600}
+th.sp{box-shadow:inset 0 -2px 0 var(--space)}
+th.bd{box-shadow:inset 0 -2px 0 var(--body)}
+.ready{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:12px 16px;border-radius:var(--r);background:var(--ok-soft);color:var(--ok);font-size:14px}
+.ready.wait{background:var(--warn-soft);color:var(--warn)}
+
+/* 경보 */
+body.alarm-flash{animation:alarmflash 1s steps(1,end) 6}
+@keyframes alarmflash{0%{background:var(--alert)}50%{background:var(--bg)}}
+body.alarming{background:color-mix(in srgb,var(--alert) 14%,var(--bg))}
+body.alarming .tools{visibility:hidden}
+body.alarming header, body.alarming footer, body.alarming #toast{display:none}
+.alarm-wrap{display:flex;flex-direction:column;gap:16px}
+.alarm-head{border-radius:14px;padding:20px 22px;background:var(--alert);color:#fff;display:flex;flex-direction:column;gap:6px}
+.alarm-head small{font-family:var(--f-mono);font-size:12.5px;opacity:.9}
+.alarm-head h2{font-size:clamp(22px,4vw,28px)}
+.alarm-head p{font-size:14.5px;opacity:.95}
+.guide{background:var(--surface);border:2px solid var(--alert);border-radius:14px;padding:22px;display:flex;flex-direction:column;gap:12px}
+.guide-top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.guide h3{font-size:clamp(22px,4vw,28px)}
+.guide ol{margin:0;padding-left:1.4em;display:flex;flex-direction:column;gap:8px;font-size:clamp(17px,2.6vw,20px);line-height:1.5}
+.guide .kind{font-size:12.5px;font-weight:600;color:var(--alert);letter-spacing:.04em}
+.ask{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px;display:flex;flex-direction:column;gap:14px}
+.ask h3{font-size:clamp(20px,3.4vw,24px);text-align:center}
+.ask-btns{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.ask-btns .btn{font-size:20px;padding:20px 10px;border-radius:12px}
+.ask-btns .yes{background:var(--alert);color:#fff}
+.ask-btns .no{background:var(--surface);color:var(--ink);border:2px solid var(--line)}
+.ask p{font-size:13.5px;color:var(--muted);text-align:center}
+.ask .sos{color:var(--alert);font-weight:600}
+
+/* 맨 위 한 줄 요약 */
+.headline{border-radius:12px;padding:12px 16px;background:var(--surface);border:1.5px solid var(--accent);font-size:15px;display:flex;flex-wrap:wrap;gap:4px 16px;align-items:baseline}
+.headline.alert{border-color:var(--alert);background:var(--alert-soft)}
+.headline .lbl{font-size:12px;color:var(--muted);margin-right:6px}
+.headline b{font-weight:700}
+.up{color:var(--alert);font-weight:600}
+.down{color:var(--body);font-weight:600}
+.flat{color:var(--ok)}
+/* 측정 시작 + 작은 시연 */
+.run-bar{display:flex;flex-wrap:wrap;gap:14px 20px;align-items:center;justify-content:space-between;padding:14px 16px;border-radius:var(--r);background:var(--sunk)}
+.run-main{display:flex;flex-direction:column;gap:10px;align-items:flex-start;flex:1 1 320px;min-width:0}
+.run-btn{font-size:17px;padding:14px 24px;border-radius:10px}
+.run-btn.on{background:var(--alert);color:#fff}
+.demo-mini{display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex:0 1 300px;min-width:0}
+.demo-mini small{font-size:11.5px;color:var(--muted)}
+.demo-tabs{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end}
+.demo-tab{all:unset;box-sizing:border-box;cursor:pointer;font-size:12px;padding:4px 9px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted)}
+.demo-tab:hover{border-color:var(--alert);color:var(--alert)}
+.demo-tab[aria-pressed="true"]{background:var(--alert);border-color:var(--alert);color:#fff}
+.demo-tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (max-width:640px){.demo-mini{align-items:flex-start;flex-basis:100%}.demo-tabs{justify-content:flex-start}}
+/* 공간 / 몸 측정표 */
+.mt{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;display:flex;flex-direction:column;gap:10px}
+.mt h3{font-size:14.5px;display:flex;align-items:center;gap:8px}
+.mt h3::before{content:"";width:9px;height:9px;border-radius:2px;background:var(--c)}
+.mt table{table-layout:fixed;font-size:13px}
+.mt col.c1{width:40%} .mt col.c2{width:28%} .mt col.c3{width:32%}
+.mt td{padding:9px 8px;white-space:normal}
+.mt-name{display:block;font-size:13.5px;font-weight:600;color:var(--ink)}
+.mt-dev{display:block;font-size:11.5px;color:var(--muted);font-weight:400}
+.mt .v{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.mt .vs{display:block;font-size:11.5px;margin-top:2px}
+.risk{display:inline-block;margin-top:4px;font-size:11px;font-weight:600;color:#fff;background:var(--alert);border-radius:4px;padding:1px 6px;line-height:1.5}
+.mt tr.grp td{background:var(--sunk);font-weight:700;font-size:12.5px;color:var(--space);padding:6px 8px}
+.mt tr.grp.here td{background:var(--alert-soft);color:var(--alert)}
+.mt .basis{font-size:12px;color:var(--muted)}
+footer{color:var(--muted);footer{color:var(--muted);font-size:12.5px;border-top:1px solid var(--line);padding-top:16px;display:flex;flex-direction:column;gap:4px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}.dot.run{animation:none}body.alarm-flash{animation-duration:2s}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="title">
+      <small>DON'T PANIC · 3초 간격 측정 · 시연용</small>
+      <h1>공황발작 감지 센서</h1>
+      <p class="lede">공황은 공간이 갑자기 바뀔 때 오는 경우가 많아요. 3초마다 공간과 몸을 측정해서, <b>방금 있던 공간(직전 1분)</b>과 <b>지금 공간</b>의 차이, 그리고 그때 몸이 어떻게 반응하는지 함께 봅니다.</p>
+    </div>
+    <div class="tools">
+      <button class="btn ghost small" id="backupBtn" type="button">백업 저장</button>
+      <button class="btn ghost small" id="restoreBtn" type="button">백업 불러오기</button>
+      <button class="btn ghost small" id="csvBtn" type="button">CSV 내보내기</button>
+      <button class="btn ghost small" id="clearBtn" type="button">전체 삭제</button>
+      <input type="file" id="restoreFile" accept=".json,application/json" hidden>
+    </div>
+  </header>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <!-- 메뉴 -->
+  <section id="v-home" aria-label="메뉴">
+    <div class="home">
+      <button class="nav-card" type="button" data-go="now">
+        <span class="k">01</span><h2>현재 상태</h2>
+        <p>실제 측정을 시작하고, 지금 공간과 몸 상태를 평소 괜찮을 때와 비교해서 봐요.</p>
+        <span class="live" id="liveNow"><i class="dot"></i>불러오는 중</span>
+        <span class="go">열기 →</span>
+      </button>
+      <button class="nav-card" type="button" data-go="me">
+        <span class="k">02</span><h2>내 정보</h2>
+        <p>연령대, 집 위치, 서울시 데이터 인증키를 넣고, 기록이 쌓이면 장소별 공간 특성과 내 몸의 평소 범위 표를 봐요.</p>
+        <span class="live" id="liveMe"></span>
+        <span class="go">열기 →</span>
+      </button>
+      <button class="nav-card" type="button" data-go="prog">
+        <span class="k">03</span><h2>데이터 쌓기 현황</h2>
+        <p>기기별·장소별로 얼마나 쌓였는지, 공황 판단 기록이 몇 번인지 봐요.</p>
+        <span class="live" id="liveProg"></span>
+        <span class="go">열기 →</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- 01 현재 상태 -->
+  <section id="v-now" hidden aria-labelledby="h-now">
+    <div class="view-head"><button class="back" type="button" data-go="home">← 처음으로</button><h2 id="h-now">현재 상태</h2>
+      <nav class="tabs" aria-label="화면 이동"><button class="tab" type="button" data-go="now" aria-current="page">현재 상태</button><button class="tab" type="button" data-go="me">내 정보</button><button class="tab" type="button" data-go="prog">데이터 쌓기 현황</button></nav></div>
+
+    <div class="headline" id="headline" role="status" aria-live="polite"></div>
+
+    <div class="sec-head"><span class="step">A</span><h3 style="font-size:18px">측정값 입력</h3><span class="hint">실제 측정은 3초, 공황 시연은 5초마다 기록해요</span></div>
+    <div class="run-bar">
+      <div class="run-main">
+        <button class="btn run-btn" type="button" id="runBtn">실제 측정 시작</button>
+        <span class="auto-state" id="autoState"></span>
+      </div>
+      <div class="demo-mini">
+        <small>가상 값 · 5초마다 · 3번째 장면마다 공황</small>
+        <button class="btn ghost" type="button" id="demoBtn">공황 시연</button>
+      </div>
+    </div>
+
+    <div class="loc">
+      <div class="loc-head"><b>현재 위치</b>
+        <div class="auto-btns"><button class="btn ghost small" type="button" id="phoneBtn">현재 위치 켜기</button><button class="btn ghost small" type="button" id="micBtn">마이크 켜기</button></div></div>
+      <div class="ctx-box">
+        <div class="ctx-row"><small>지금 공간</small><b id="ctxType">판단 대기</b></div>
+        <div class="ctx-row"><small>지금 상태</small><div id="ctxBody" class="ctx-body"></div></div>
+      </div>
+      <div>
+        <div id="map" class="map" role="region" aria-label="현재 위치 지도"></div>
+        <div class="map-legend"><span><i style="background:#E02424"></i>지금 내 위치 (옅은 원 = GPS 오차 범위)</span><span><i style="background:#6B4A93"></i>집 범위</span><span><i style="background:#8F5600"></i>주변 건물</span></div>
+      </div>
+      <p class="hint" id="mapNote">"실제 측정 시작"을 누르면 지도에 내 위치가 빨간 점으로 표시돼요.</p>
+    </div>
+
+    <div class="mt" style="--c:var(--space)">
+      <h3>공간</h3>
+      <p class="basis" id="mtBasis"></p>
+      <div class="tbl-wrap"><table><colgroup><col class="c1"><col class="c2"><col class="c3"></colgroup>
+        <thead><tr><th>측정하는 종목 · 기기</th><th>평소 괜찮을 때</th><th>현재 상태</th></tr></thead><tbody id="mtSpace"></tbody></table></div>
+    </div>
+    <div class="mt" style="--c:var(--body)">
+      <h3>몸</h3>
+      <div class="tbl-wrap"><table><colgroup><col class="c1"><col class="c2"><col class="c3"></colgroup><tbody id="mtBody"></tbody></table></div>
+    </div>
+
+    <details class="fold" id="nowFold"><summary><b><span class="step">B</span> 직전 1분과 비교</b><span id="nowSum">가장 최근 기록을 직전 1분과 비교해요</span></summary>
+      <div class="fold-body">
+        <p class="hint">가장 최근 기록을 직전 1분(20회) 평균과 비교해요.</p>
+        <div id="statusBox"></div>
+        <div class="legend">
+          <span><i style="background:var(--warn)"></i>공간이 갑자기 바뀜</span>
+          <span><i style="background:var(--alert)"></i>몸이 긴장하는 방향으로 바뀜</span>
+          <span><i style="background:var(--body)"></i>몸 상태가 평소와 다름</span>
+          <span><i style="background:var(--ok)"></i>평소와 비슷함</span>
+        </div>
+        <details class="fold sub" style="--c:var(--space)"><summary><b class="group-title">공간</b><span id="spaceSum"></span></summary><div class="fold-body"><div class="cards" id="spaceCards"></div></div></details>
+        <details class="fold sub" style="--c:var(--body)"><summary><b class="group-title">몸</b><span id="bodySum"></span></summary><div class="fold-body"><div class="cards" id="bodyCards"></div></div></details>
+      </div>
+    </details>
+  </section>
+
+  <!-- 02 내 정보 -->
+  <section id="v-me" hidden aria-labelledby="h-me">
+    <div class="view-head"><button class="back" type="button" data-go="home">← 처음으로</button><h2 id="h-me">내 정보</h2>
+      <nav class="tabs" aria-label="화면 이동"><button class="tab" type="button" data-go="now">현재 상태</button><button class="tab" type="button" data-go="me" aria-current="page">내 정보</button><button class="tab" type="button" data-go="prog">데이터 쌓기 현황</button></nav></div>
+    <form class="panel" id="meForm" novalidate>
+      <div class="row">
+        <div class="field" style="flex:0 1 240px"><label for="m-age">연령대<small>나이에 따라 심박수 위험 기준이 달라져요</small></label>
+          <select id="m-age"><option value="">선택하세요</option><option>10대</option><option>20대</option><option>30대</option><option>40대</option><option>50대</option><option>60대</option><option>70대 이상</option></select></div>
+        <button class="btn" type="submit">저장</button>
+      </div>
+      <p class="hint" id="meNote" hidden></p>
+    </form>
+    <div class="sec-head"><h3 style="font-size:18px">집 위치</h3><span class="hint">완전한 이완(침대)·초집중(집 책상) 판단에 써요</span></div>
+    <div class="panel">
+      <div class="row">
+        <div class="field" style="flex:1 1 220px"><span style="font-size:13.5px;font-weight:600">집 위치<small style="display:block;font-weight:400;color:var(--muted);font-size:11.5px" id="homeInfo">아직 등록하지 않았어요</small></span></div>
+        <div class="field" style="flex:0 1 160px"><label for="m-rad">집으로 볼 범위</label><select id="m-rad"><option value="30">30m</option><option value="50" selected>50m</option><option value="100">100m</option><option value="200">200m</option></select></div>
+        <button class="btn small" type="button" id="homeBtn">지금 위치를 집으로 저장</button>
+        <button class="btn ghost small" type="button" id="homeDel">집 위치 지우기</button>
+      </div>
+      <p class="hint">집에서 눌러 주세요. 실내는 GPS가 약하니 창가에서 누르면 더 정확해요.</p>
+    </div>
+    <div class="sec-head"><h3 style="font-size:18px">서울시 실시간 도시데이터</h3><span class="hint">인구 밀도 판단에 써요 (서울 주요 장소만)</span></div>
+    <div class="panel">
+      <div class="row">
+        <div class="field" style="flex:1 1 260px"><label for="m-key">인증키<small>서울 열린데이터광장에서 무료로 발급받은 키</small></label><input id="m-key" type="text" autocomplete="off" spellcheck="false" placeholder="예: 4a6f...(발급받은 키)"></div>
+        <div class="field" style="flex:1 1 260px"><label for="m-proxy">중계 주소 (선택)<small>서울시 서버에 바로 연결이 안 될 때만 넣어요</small></label><input id="m-proxy" type="url" autocomplete="off" spellcheck="false" placeholder="https://..."></div>
+        <button class="btn small" type="button" id="keySave">저장</button>
+      </div>
+      <p class="hint">인증키는 이 브라우저에만 저장되고 백업 파일에는 넣지 않아요.</p>
+    </div>
+    <div id="meReady"></div>
+    <div id="meTables"></div>
+  </section>
+
+  <!-- 03 데이터 쌓기 현황 -->
+  <section id="v-prog" hidden aria-labelledby="h-prog">
+    <div class="view-head"><button class="back" type="button" data-go="home">← 처음으로</button><h2 id="h-prog">데이터 쌓기 현황</h2>
+      <nav class="tabs" aria-label="화면 이동"><button class="tab" type="button" data-go="now">현재 상태</button><button class="tab" type="button" data-go="me">내 정보</button><button class="tab" type="button" data-go="prog" aria-current="page">데이터 쌓기 현황</button></nav></div>
+    <p class="hint">3초마다 측정한 값과 그때의 장소, 그리고 경보 뒤 "예/아니오"로 답한 순간이 모두 쌓여요.</p>
+    <details class="fold" id="devFold"><summary><b>기기별 진행 현황</b><span id="devSum"></span></summary><div class="fold-body"><div class="prog" id="devList"></div></div></details>
+    <details class="fold" id="placeFold"><summary><b>장소별 진행 현황</b><span id="placeSum"></span></summary><div class="fold-body"><p class="hint">장소마다 200개(10분)가 쌓이면 내 정보에 그 장소의 표가 생겨요.</p><div class="prog" id="placeList"></div></div></details>
+    <details class="fold" id="evFold"><summary><b>공황발작 판단 기록</b><span id="evSum"></span></summary><div class="fold-body"><ul class="ev-list" id="evList"></ul></div></details>
+  </section>
+
+  <!-- 경보: 답하기 전까지 유지 -->
+  <section id="v-alarm" hidden aria-label="공황 안내">
+    <div class="alarm-wrap">
+      <div class="guide" role="alert">
+        <div class="guide-top"><span class="kind" id="guideKind"></span>
+          <div class="auto-btns"><button class="btn ghost small" type="button" id="replayBtn">다시 듣기</button><button class="btn ghost small" type="button" id="muteBtn">소리 끄기</button></div></div>
+        <h3 id="guideTitle"></h3>
+        <ol id="guideLines"></ol>
+      </div>
+      <div class="ask">
+        <h3>지금 공황발작이 일어났나요?</h3>
+        <div class="ask-btns"><button class="btn yes" type="button" id="ansYes">예</button><button class="btn no" type="button" id="ansNo">아니오</button></div>
+        <p>답을 누르기 전까지 이 화면이 그대로 유지돼요. 진정된 뒤에 눌러도 괜찮아요.</p>
+        <p class="sos">처음 겪는 가슴 통증이 있거나 숨쉬기가 계속 힘들면 119에 연락하세요.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p>시연용 사이트예요. 센서 값은 가상으로 만든 값이며("실제 측정"에서는 휴대폰 GPS·마이크·움직임 센서 값만 기록하고, 공황 시연에서는 가상 값을 써요), 의료기기가 아닙니다. 공황 진단이나 치료는 의료진과 상의하세요.</p>
+    <p>기록은 이 브라우저에만 저장돼요. 저장 공간이 차면 오래된 일반 기록부터 지우고, 공황 판단 기록과 그 전후 기록은 남겨요. 다른 기기에서 이어서 쓰려면 "백업 저장" 후 "백업 불러오기"를 하세요.</p>
+  </footer>
+</div>
+
+<script>
+(function(){
+"use strict";
+/* ================= 기본 설정 ================= */
+const INTERVAL=3, WIN=20, LS="dontpanic-v3", LSP="dontpanic-profile-v1", MAXKEEP=15000, LEARN=7200, PLACE_MIN=200;
+const DEVICES=[
+  {id:"BH1750",g:"space",what:"밝기",target:600,why:"실내·실외·지하의 밝기 차이가 커서 30분 분량"},
+  {id:"MAX4466",g:"space",what:"소음·목소리 비율",target:1200,why:"순간 소음이 많아 1시간 분량 (휴대폰 마이크로 대신 가능)"},
+  {id:"CCS811",g:"space",what:"CO2",target:600,why:"천천히 변해서 30분 분량 (켜고 20분은 예열)"},
+  {id:"BMP280",g:"space",what:"기압",target:200,why:"잡음이 적어 10분 분량"},
+  {id:"HC-SR04",g:"space",what:"막힘 정도",target:400,why:"방향에 따라 값이 바뀌어 20분 분량"},
+  {id:"GPS",g:"space",what:"이동 속도",target:200,why:"휴대폰 GPS로 바로 재요 · 10분 분량"},
+  {id:"MPU6050",g:"space",what:"움직임·자세·떨림",target:1200,why:"움직임과 자세가 계속 바뀌어 1시간 분량"},
+  {id:"GSR",g:"body",what:"식은땀",target:1200,why:"반응이 느리고 개인차가 커서 1시간 분량"},
+  {id:"MAX30102",g:"body",what:"심박·HRV·산소",target:1200,why:"자세·움직임에 따라 계속 변해서 1시간 분량"},
+  {id:"STRETCH",g:"body",what:"호흡 주기",target:600,why:"숨 한 번이 3~5초라 30분이면 호흡 400회 이상"},
+  {id:"MLX90614",g:"body",what:"말초 체온",target:600,why:"천천히 변해서 30분 분량"},
+  {id:"IRCAM",g:"body",what:"동공 크기",target:600,why:"밝기에 따라 변해서 30분 분량"},
+  {id:"EMG",g:"body",what:"근육 긴장도",target:1200,why:"잡음과 움직임 영향이 커서 1시간 분량"}
+];
+const DEVNAME={IRCAM:"적외선 카메라 모듈",GPS:"GPS (휴대폰)",MPU6050:"MPU-6050",GSR:"GSR 센서",STRETCH:"스트레치 밴드",EMG:"EMG 센서"};
+const devName=id=>DEVNAME[id]||id;
+/* dir: 공황 때 예상 방향 (+1 오름, -1 내림, 0 방향 없음). phone: 현재 위치를 켜면 휴대폰 움직임 센서로 측정 */
+const FIELDS={
+  lux:{g:"space",dev:"BH1750",label:"밝기",hint:"주변이 얼마나 밝은지",unit:"lux",min:0,max:65535,dp:0,def:0.47,rel:true,ph:"320"},
+  noise:{g:"space",dev:"MAX4466",label:"소음",hint:"군중 소음·소음 스파이크",unit:"dB",min:20,max:130,dp:0,def:10,ph:"45",mic:true},
+  co2:{g:"space",dev:"CCS811",label:"공기 답답함 (CO2)",hint:"환기 불량이면 올라가요",unit:"ppm",min:400,max:8192,dp:0,def:150,ph:"700"},
+  pressure:{g:"space",dev:"BMP280",label:"기압",hint:"엘리베이터·지하 진입 때 바뀌어요",unit:"hPa",min:300,max:1100,dp:2,def:0.3,ph:"1013.25"},
+  voice:{g:"space",dev:"MAX4466",label:"목소리 비율",hint:"사람 목소리 대역(300~3,000Hz) 소리의 비율 · 붐빌수록 올라가요",unit:"%",min:0,max:100,dp:0,def:15,ph:"20",mic:true},
+  speed:{g:"space",dev:"GPS",label:"이동 속도",hint:"GPS로 잰 속도 · 버스·지하철 판단",unit:"km/h",min:0,max:300,dp:1,def:8,ph:"0",gps:true},
+  dist:{g:"space",dev:"HC-SR04",label:"막힘 정도",hint:"가장 가까운 벽까지 거리 · 멀수록 뻥 뚫림",unit:"cm",min:2,max:400,dp:0,def:50,ph:"180"},
+  move:{g:"space",dev:"MPU6050",label:"움직임",hint:"가만히 있으면 0에 가까워요",unit:"m/s²",min:0,max:30,dp:2,def:0.6,ph:"0.10",phone:true},
+  tilt:{g:"space",dev:"MPU6050",label:"몸 기울기",hint:"0° 서 있음 · 90° 누움",unit:"°",min:0,max:180,dp:0,def:30,ph:"10",phone:true},
+  gsr:{g:"body",dev:"GSR",label:"식은땀",hint:"피부 전기 전도도 · 땀나면 올라가요",unit:"µS",min:0,max:100,dp:2,def:0.5,ph:"2.5",dir:1},
+  hr:{g:"body",dev:"MAX30102",label:"심박수",hint:"움직임 없이 오르면 긴장 신호",unit:"회/분",min:30,max:220,dp:0,def:10,ph:"72",dir:1,still:true},
+  hrv:{g:"body",dev:"MAX30102",label:"심박 간격 변화 (HRV)",hint:"긴장하면 간격이 기계처럼 일정해져 작아져요",unit:"ms",min:1,max:300,dp:0,def:10,ph:"45",dir:-1},
+  spo2:{g:"body",dev:"MAX30102",label:"혈중 산소",hint:"과호흡 판단에 참고",unit:"%",min:70,max:100,dp:0,def:2,ph:"98",dir:0},
+  breath:{g:"body",dev:"STRETCH",label:"호흡 주기",hint:"밴드 부착 시 · 짧을수록 빠른 호흡",unit:"초",min:0.5,max:20,dp:1,def:0.8,ph:"4.2",dir:-1,still:true},
+  temp:{g:"body",dev:"MLX90614",label:"말초 체온",hint:"손발 표면 온도 · 긴장하면 떨어져요",unit:"°C",min:20,max:42,dp:1,def:0.5,ph:"32.5",dir:-1},
+  pupil:{g:"body",dev:"IRCAM",label:"동공 크기",hint:"긴장하면 커져요",unit:"mm",min:1,max:9,dp:1,def:0.5,ph:"3.8",dir:1},
+  emg:{g:"body",dev:"EMG",label:"근육 긴장도",hint:"활동 없이 근육이 굳으면 올라가요",unit:"µV",min:0,max:2000,dp:0,def:10,ph:"25",dir:1,still:true},
+  tremor:{g:"body",dev:"MPU6050",label:"미세 떨림 (4~12Hz)",hint:"빠르고 미세하게 떨리면 올라가요",unit:"m/s²",min:0,max:20,dp:2,def:0.12,ph:"0.04",dir:1,still:true,phone:true}
+};
+const KEYS=Object.keys(FIELDS), SPACE=KEYS.filter(k=>FIELDS[k].g==="space"), BODY=KEYS.filter(k=>FIELDS[k].g==="body");
+const MOVING=1.5;   /* 움직임이 이 이상이면 운동·걷기 중으로 보고 심박·호흡 상승을 긴장으로 보지 않아요 */
+
+let samples=[], events=[], profile={}, view="home", lastStatus=null, toastTimer=null, pendingClear=false, thrCache=null;
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt=(v,dp)=>v==null||!isFinite(v)?"—":Number(v).toLocaleString("ko-KR",{minimumFractionDigits:dp,maximumFractionDigits:dp});
+const p2=n=>String(n).padStart(2,"0");
+const fmtTime=iso=>{const d=new Date(iso);if(isNaN(d))return"—";return `${d.getMonth()+1}/${d.getDate()} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;};
+const toLocalInput=d=>{const x=new Date(d.getTime()-d.getTimezoneOffset()*60000);return x.toISOString().slice(0,19);};
+const val=(s,k)=>{const v=s&&s.v&&s.v[k];return typeof v==="number"&&isFinite(v)?v:null;};
+
+/* ================= 저장 ================= */
+function clean(list){
+  if(!Array.isArray(list)) return [];
+  const out=[];
+  for(const s of list){
+    if(!s||!s.t||isNaN(new Date(s.t))) continue;
+    const src=s.v||{}, v={}; let any=false;
+    for(const k of KEYS){const x=Number(src[k]); if(src[k]!=null&&src[k]!==""&&isFinite(x)){v[k]=x;any=true;}}
+    if(!any) continue;
+    const o={t:new Date(s.t).toISOString(),v};
+    if(s.place&&CTX[s.place]) o.place=s.place;
+    if(s.cg>=1&&s.cg<=4) o.cg=s.cg;
+    if(s.label==="panic"||s.label==="no") o.label=s.label;
+    out.push(o);
+  }
+  return out.sort((a,b)=>a.t.localeCompare(b.t));
+}
+function cleanEvents(list){
+  if(!Array.isArray(list)) return [];
+  return list.filter(e=>e&&e.id&&e.t&&!isNaN(new Date(e.t))).map(e=>({id:e.id,t:e.t,ctx:CTX[e.ctx]?e.ctx:"normal",guide:GUIDES[e.guide]?e.guide:"other",why:Array.isArray(e.why)?e.why:[],answer:e.answer==="panic"||e.answer==="no"?e.answer:null,answeredAt:e.answeredAt||null}))
+    .sort((a,b)=>a.t.localeCompare(b.t));
+}
+function load(){
+  try{const r=localStorage.getItem(LS); if(r){const o=JSON.parse(r); samples=clean(o.samples); events=cleanEvents(o.events);}}catch(e){samples=[];events=[];}
+  try{profile=JSON.parse(localStorage.getItem(LSP)||"{}")||{};}catch(e){profile={};}
+}
+/* 오래된 일반 기록부터 지우고, 공황 판단(예/아니오) 구간은 남겨요 */
+function trim(n){
+  let drop=n;
+  samples=samples.filter(s=>{ if(drop>0&&!s.label){drop--;return false;} return true; });
+}
+function save(){
+  if(samples.length>MAXKEEP) trim(samples.length-MAXKEEP);
+  for(let i=0;i<4;i++){
+    try{localStorage.setItem(LS,JSON.stringify({samples,events}));return true;}
+    catch(e){ trim(Math.ceil(samples.length*0.2)); }
+  }
+  return false;
+}
+function saveProfile(){try{localStorage.setItem(LSP,JSON.stringify(profile));return true;}catch(e){return false;}}
+function persist(msg){save()?(msg&&toast(msg)):toast("브라우저 저장소가 막혀 있어 저장하지 못했어요. 시크릿 모드라면 일반 창에서 열어 주세요.",true);}
+function toast(msg,bad,action){
+  const t=$("#toast"); t.className="toast"+(bad?" bad":""); t.textContent=msg;
+  if(action){const b=document.createElement("button");b.type="button";b.className="btn ghost small";b.textContent=action.label;b.onclick=action.fn;t.appendChild(b);}
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>{t.textContent="";},action?10000:4000);
+}
+
+/* ================= 분석 ================= */
+function prevMean(k,idx){
+  let sum=0,n=0;
+  for(let i=idx-1;i>=0&&n<WIN;i--){const x=val(samples[i],k); if(x!=null){sum+=x;n++;}}
+  return n?{mean:sum/n,n}:null;
+}
+const devOf=(k,x,mean)=>FIELDS[k].rel?Math.log((x+1)/(mean+1)):x-mean;
+const median=a=>{if(!a.length)return null;const b=[...a].sort((x,y)=>x-y),m=b.length>>1;return b.length%2?b[m]:(b[m-1]+b[m])/2;};
+const pct=(a,p)=>{if(!a.length)return null;const b=[...a].sort((x,y)=>x-y);return b[Math.min(b.length-1,Math.max(0,Math.round(p*(b.length-1))))];};
+function stats(arr){const n=arr.length;if(!n)return null;const mean=arr.reduce((a,b)=>a+b,0)/n;const sd=n>1?Math.sqrt(arr.reduce((a,b)=>a+(b-mean)**2,0)/(n-1)):null;return {n,mean,sd};}
+function thresholds(){
+  if(thrCache) return thrCache;
+  const res={}, start=Math.max(1,samples.length-LEARN);
+  for(const k of KEYS){
+    const f=FIELDS[k], devs=[]; let count=0;
+    for(const s of samples) if(val(s,k)!=null) count++;
+    for(let i=start;i<samples.length;i++){const x=val(samples[i],k); if(x==null||samples[i].label==="panic") continue; const pm=prevMean(k,i); if(pm&&pm.n>=6) devs.push(Math.abs(devOf(k,x,pm.mean)));}
+    res[k]=devs.length>=60?{thr:Math.min(f.def*3,Math.max(f.def*(f.rel?0.8:0.4),4.5*median(devs))),learned:true,count}:{thr:f.def,learned:false,count};
+  }
+  return thrCache=res;
+}
+function judge(k,idx){
+  const x=val(samples[idx],k); if(x==null) return null;
+  const pm=prevMean(k,idx); if(!pm) return {now:x,before:null};
+  const f=FIELDS[k], t=thresholds()[k].thr, d=x-pm.mean, dv=devOf(k,x,pm.mean);
+  let big=pm.n>=3&&Math.abs(dv)>t;
+  if(big&&Math.abs(dv)<2*t&&idx>0){ /* 한 번 튄 잡음은 무시 */
+    const px=val(samples[idx-1],k), ppm=px==null?null:prevMean(k,idx-1), pdv=ppm?devOf(k,px,ppm.mean):0;
+    big=Math.sign(pdv)===Math.sign(dv)&&Math.abs(pdv)>t*0.5;
+  }
+  let flag="calm", moving=false;
+  if(big){
+    if(f.g==="space") flag="space";
+    else{
+      moving=f.still&&(val(samples[idx],"move")||0)>=MOVING;
+      flag=f.dir&&Math.sign(d)===f.dir&&!moving?"tense":"change";
+    }
+  }
+  return {now:x,before:pm.mean,n:pm.n,d,big,flag,thr:t,moving};
+}
+
+/* ================= 연령대 기준 (내 기록이 쌓이기 전) ================= */
+const AGE_MID={"10대":16,"20대":25,"30대":35,"40대":45,"50대":55,"60대":65,"70대 이상":75};
+function popRef(){
+  const age=AGE_MID[profile.age]||35, hrMax=Math.round(208-0.7*age);
+  return {age,hrMax,hrDanger:Math.min(125,Math.max(100,Math.round(hrMax*0.62))),breathDanger:2.7,spo2Danger:92,hrvLow:15};
+}
+function usePop(k){const d=DEVICES.find(x=>x.id===FIELDS[k].dev); return thresholds()[k].count<d.target;}
+function absoluteFlags(idx){
+  const r=popRef(), s=samples[idx], out={hr:null,breath:null,lowO2:null};
+  const hr=val(s,"hr"), br=val(s,"breath"), o2=val(s,"spo2"), mv=val(s,"move")||0;
+  if(hr!=null&&usePop("hr")&&hr>=r.hrDanger&&mv<MOVING) out.hr=`심박수 ${hr}회/분 · 움직임 없이 ${profile.age||"30대"} 위험 기준 ${r.hrDanger} 이상`;
+  if(br!=null&&usePop("breath")&&br<=r.breathDanger&&mv<MOVING) out.breath=`호흡 주기 ${br}초 · 1분에 ${Math.round(60/br)}회 (위험 기준 22회 이상)`;
+  if(o2!=null&&o2<=r.spo2Danger) out.lowO2=`혈중 산소 ${o2}% (위험 기준 ${r.spo2Danger}% 이하)`;
+  return out;
+}
+
+/* ================= 휴대폰 (GPS·움직임 센서) ================= */
+const phone={on:false,gps:null,gpsErr:null,lastFix:0,speed:null,prevFix:null,steps:[],lastStep:0,
+  g:null,gv:null,f:{x:[0,0,0,0],y:[0,0,0,0],z:[0,0,0,0]},acc:{n:0,dyn2:0,bp2:0},last:{move:null,tilt:null,tremor:null,t:0}};
+const hav=(a,b)=>{const R=6371000,r=x=>x*Math.PI/180,dLa=r(b.lat-a.lat),dLo=r(b.lng-a.lng);const h=Math.sin(dLa/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(dLo/2)**2;return 2*R*Math.asin(Math.sqrt(h));};
+function onMotion(e){
+  const a=e.accelerationIncludingGravity; if(!a||a.x==null) return;
+  const now=Date.now(); phone.motionAt=now;
+  if(!phone.gv){phone.gv={x:a.x,y:a.y,z:a.z};return;}         /* 첫 값으로 중력 방향을 잡아요 */
+  const gv=phone.gv;
+  gv.x+= (a.x-gv.x)*0.08; gv.y+=(a.y-gv.y)*0.08; gv.z+=(a.z-gv.z)*0.08;       /* 중력 방향 (느린 평균) */
+  const dx=a.x-gv.x, dy=a.y-gv.y, dz=a.z-gv.z, dyn=Math.sqrt(dx*dx+dy*dy+dz*dz);
+  /* 4~12Hz만 남기는 간단한 필터 (초당 약 60회 기준), 축마다 따로 계산해서 합쳐요 */
+  let bp2=0; const D={x:dx,y:dy,z:dz};
+  for(const ax of ["x","y","z"]){
+    const F=phone.f[ax];
+    F[0]+=(D[ax]-F[0])*0.342; const h1=D[ax]-F[0];          /* 4Hz 아래를 두 번 걸러내고 */
+    F[1]+=(h1-F[1])*0.342;    const h2=h1-F[1];
+    F[2]+=(h2-F[2])*0.716;    F[3]+=(F[2]-F[3])*0.716;     /* 12Hz 위를 두 번 걸러내요 */
+    bp2+=F[3]*F[3];}
+  phone.acc.n++; phone.acc.dyn2+=dyn*dyn; phone.acc.bp2+=bp2;
+  const m=Math.sqrt(a.x*a.x+a.y*a.y+a.z*a.z); phone.g=phone.g==null?m:phone.g*0.92+m*0.08;
+  if(m-phone.g>1.3&&now-phone.lastStep>300){phone.lastStep=now;phone.steps.push(now);}
+  phone.steps=phone.steps.filter(t=>now-t<30000);
+}
+/* 측정 시점마다 지난 3초의 움직임·자세·떨림을 정리 */
+function phoneMotionSample(){
+  const A=phone.acc; if(!phone.on||A.n<10||!phone.gv) return null;
+  const gm=Math.sqrt(phone.gv.x**2+phone.gv.y**2+phone.gv.z**2)||9.8;
+  const tilt=Math.acos(Math.min(1,Math.abs(phone.gv.y)/gm))*180/Math.PI;    /* 휴대폰 세로축과 중력 사이 각도 */
+  const out={move:+Math.sqrt(A.dyn2/A.n).toFixed(2),tilt:Math.round(tilt),tremor:+Math.sqrt(A.bp2/A.n).toFixed(2)};
+  phone.acc={n:0,dyn2:0,bp2:0}; phone.last={...out,t:Date.now()}; return out;
+}
+function onFix(pos){
+  const c=pos.coords, now=Date.now(), fix={lat:c.latitude,lng:c.longitude,acc:c.accuracy,t:now};
+  let sp=c.speed!=null&&isFinite(c.speed)?c.speed:null;
+  if(sp==null&&phone.prevFix&&fix.acc<40&&phone.prevFix.acc<40){const dt=(now-phone.prevFix.t)/1000, d=hav(phone.prevFix,fix); if(dt>=2) sp=d>(fix.acc+phone.prevFix.acc)?d/dt:0;}
+  phone.prevFix=fix; phone.gps=fix; phone.lastFix=now; phone.speed=sp; phone.gpsErr=null;
+  osmMaybeQuery(fix).then(updateMap); seoulMaybeFetch(fix); updateMap();
+}
+const gpsLive=()=>!!(phone.on&&phone.gps&&Date.now()-phone.lastFix<30000);
+const motionLive=()=>!!(phone.on&&phone.motionAt&&Date.now()-phone.motionAt<10000);
+const micLive=()=>!!(mic.on&&mic.last&&Date.now()-mic.last.t<10000);
+function phoneState(){
+  if(!phone.on) return null;
+  const now=Date.now(), cadence=phone.steps.length*2, gpsOk=!!(phone.gps&&now-phone.lastFix<30000&&phone.gps.acc<=40);
+  const speed=now-phone.lastFix<15000?phone.speed:null;
+  return {cadence,gpsOk,gps:phone.gps,speed,kmh:speed==null?null:speed*3.6};
+}
+let geoWatch=null;
+async function phoneOn(){
+  if(!window.isSecureContext){toast("현재 위치와 움직임은 https:// 주소에서만 쓸 수 있어요. GitHub Pages에서 Enforce HTTPS를 켜 주세요.",true);return;}
+  try{ if(typeof DeviceMotionEvent!=="undefined"&&typeof DeviceMotionEvent.requestPermission==="function"){
+    const r=await DeviceMotionEvent.requestPermission(); if(r!=="granted") toast("움직임 권한이 거절되어 자세·떨림을 잴 수 없어요. 설정에서 허용해 주세요.",true);} }catch(e){}
+  window.addEventListener("devicemotion",onMotion);
+  if("geolocation" in navigator) geoWatch=navigator.geolocation.watchPosition(onFix,err=>{phone.gpsErr=err.code===1?"위치 권한이 거절됐어요":"위치를 찾지 못했어요";updateMap();},{enableHighAccuracy:true,maximumAge:5000,timeout:20000});
+  else phone.gpsErr="이 기기는 위치를 쓸 수 없어요";
+  phone.on=true; phone.onAt=Date.now(); phone.acc={n:0,dyn2:0,bp2:0}; phone.gv=null; renderLoc(); updateMap(); syncForm(); toast("현재 위치를 켰어요");
+}
+function phoneOff(){
+  window.removeEventListener("devicemotion",onMotion);
+  if(geoWatch!=null&&navigator.geolocation) navigator.geolocation.clearWatch(geoWatch);
+  geoWatch=null; phone.on=false; phone.steps=[]; renderLoc(); updateMap(); syncForm(); toast("현재 위치를 껐어요");
+}
+
+/* ================= 무료 지도: 오픈스트리트맵 건물 확인 ================= */
+const osm={at:null,lastQuery:0,busy:false,inBuilding:null,buildings:[],err:null};
+function inPoly(pt,ring){let ins=false;for(let i=0,j=ring.length-1;i<ring.length;j=i++){const a=ring[i],b=ring[j];if(((a.lat>pt.lat)!==(b.lat>pt.lat))&&(pt.lng<(b.lng-a.lng)*(pt.lat-a.lat)/(b.lat-a.lat)+a.lng)) ins=!ins;}return ins;}
+async function osmMaybeQuery(fix){
+  if(fix.acc>80) return;
+  if(osm.at&&hav(osm.at,fix)<50){osm.inBuilding=osm.buildings.some(r=>inPoly(fix,r));return;}
+  if(osm.busy||Date.now()-osm.lastQuery<30000) return;
+  osm.busy=true; osm.lastQuery=Date.now();
+  const q=`[out:json][timeout:15];way(around:80,${fix.lat},${fix.lng})[building];out geom;`;
+  try{
+    const r=await fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:"data="+encodeURIComponent(q),headers:{"Content-Type":"application/x-www-form-urlencoded"}});
+    if(!r.ok) throw new Error(r.status);
+    const j=await r.json();
+    osm.buildings=j.elements.filter(e=>e.type==="way"&&e.geometry).map(e=>e.geometry.map(g=>({lat:g.lat,lng:g.lon})));
+    osm.at={lat:fix.lat,lng:fix.lng}; osm.err=null; osm.inBuilding=osm.buildings.some(r=>inPoly(fix,r));
+  }catch(e){osm.err=true;}
+  osm.busy=false;
+}
+
+/* ================= 지금 공간 판단 (3초마다) =================
+   순서: 완전한 이완 → 밀폐 → 급격한 전이 → 인구 밀도 높음 → 과개방 → 초집중 → 일반 */
+const CTX={enclosed:"밀폐 공간 (지하철·엘리베이터·버스 등)",open:"과개방 공간 (광장·길거리 등 뻥 뚫린 곳)",crowd:"인구 밀도가 높은 공간 (번화가·행사장 등)",
+  shift:"급격한 전이 공간 (어둠↔빛, 정적↔소음)",focus:"초집중 공간 (책상 앞 작업 중)",bed:"완전한 이완 공간 (자기 전 침대 위)",normal:"일반 공간 (특별한 상황 아님)"};
+const PLACE_NAME={enclosed:"밀폐 공간",open:"과개방 공간",crowd:"과밀도 공간",shift:"급격한 전이 공간",focus:"초집중 상태",bed:"이완 상태",normal:"일반 공간"};
+const SHORT={enclosed:"밀폐",open:"과개방",crowd:"인구 밀도 높음",shift:"급격한 전이",focus:"초집중",bed:"완전한 이완",normal:"일반"};
+const GROUP={bed:"bed",enclosed:"enclosed",open:"open",crowd:"open",shift:"other",focus:"other",normal:"other"};
+const place={type:null,why:[],outdoorP:null,stillSince:null,shiftLeft:0};
+const hourNow=t=>new Date(t).getHours();
+function vSpeedAt(i){
+  if(i<1) return null;
+  const p1=val(samples[i-1],"pressure"), p2=val(samples[i],"pressure"); if(p1==null||p2==null) return null;
+  const dt=(new Date(samples[i].t)-new Date(samples[i-1].t))/1000; if(!(dt>0&&dt<=10)) return null;
+  return (p1-p2)*8.3/dt;          /* 기압 1hPa ≈ 8.3m · + 올라감, − 내려감 (m/초) */
+}
+function placeRaw(){
+  const idx=samples.length-1, s=samples[idx], prev=samples[idx-1];
+  const lux=val(s,"lux"), noise=val(s,"noise"), dist=val(s,"dist"), co2=val(s,"co2"), pr=val(s,"pressure"), mv=val(s,"move"), tilt=val(s,"tilt");
+  const ph=phoneState(), hr=hourNow(s.t), still=mv!=null&&mv<0.3, noSteps=ph?ph.cadence<40:(mv==null||mv<MOVING);
+  const home=homeState(ph);
+  /* 1) 완전한 이완: 누운 자세 + 불 꺼짐 + 움직임 없음 (+ 집 위치를 등록했다면 집 안) */
+  if(tilt!=null&&tilt>=60&&lux!=null&&lux<20&&still&&home!==false)
+    return {type:"bed",why:[`누운 자세 (기울기 ${Math.round(tilt)}°)`,`불이 꺼짐 (${Math.round(lux)}lux)`,"움직임 없음",...(hr>=22||hr<6?[`심야 시간대 (${p2(hr)}시)`]:[]),...(home?["집 범위 안 (GPS)"]:[])]};
+  /* 2) 밀폐/구속 */
+  const v=vSpeedAt(idx), vp=vSpeedAt(idx-1);
+  if(v!=null&&vp!=null&&Math.abs(v)>=0.7&&Math.abs(vp)>=0.7&&Math.sign(v)===Math.sign(vp)&&noSteps)
+    return {type:"enclosed",why:[`엘리베이터: 수직 속도 ${Math.abs(v).toFixed(1)}m/초로 ${v>0?"올라가는":"내려가는"} 중 (6초 연속)`,"걷는 움직임 없음"]};
+  const kmh=ph&&ph.kmh!=null?ph.kmh:val(s,"speed");
+  if(kmh!=null&&kmh>=30&&noSteps){place.vehicleAt=s.t; return {type:"enclosed",why:[`차량: 걷지 않는데 시속 ${Math.round(kmh)}km로 이동`,"버스·지하철 안으로 봐요"]};}
+  if(place.type==="enclosed"&&place.vehicle&&noSteps&&place.vehicleAt&&new Date(s.t)-new Date(place.vehicleAt)<120000) return {type:"enclosed",why:["직전까지 차량 이동 중","아직 걷기 시작하지 않아 유지 (정류장·신호 대기)"],vehicle:true};
+  const under=place.outdoorP!=null&&pr!=null?pr-place.outdoorP:null;
+  let sc=0; const ew=[], add=(n,t)=>{sc+=n;ew.push(`${t} (+${n})`);};
+  if(under!=null&&under>=0.6) add(2,`지하 진입: 바깥보다 기압 ${under.toFixed(1)}hPa 높음 (약 ${Math.round(under*8.3)}m 아래)`);
+  if(co2!=null&&co2>=1000) add(1,`환기 불량: CO2 ${Math.round(co2)}ppm`);
+  const pmc=co2!=null?prevMean("co2",idx):null; if(pmc&&co2-pmc.mean>=100) add(1,`CO2가 1분 새 ${Math.round(co2-pmc.mean)}ppm 상승`);
+  if(dist!=null&&dist<150) add(1,`가까운 벽까지 ${Math.round(dist)}cm`);
+  if(ph&&!ph.gpsOk) add(1,"GPS 신호 약함 (실내·지하)");
+  if(sc>=3) return {type:"enclosed",why:[...ew,`밀폐 점수 ${sc}점 (3점 이상)`]};
+  /* 3) 급격한 전이: 3초 안에 밝기 3배 이상 변화 또는 소음 15dB 이상 급등 (6초 동안 표시) */
+  const pl=val(prev,"lux"), pn=val(prev,"noise");
+  if(place.skipShift>0) place.skipShift--;          /* 시연 장면으로 순간 이동한 직후는 급격한 전이로 보지 않아요 */
+  else if(lux!=null&&pl!=null&&Math.abs(Math.log((lux+1)/(pl+1)))>=Math.log(3)){place.shiftLeft=2; place.shiftWhy=`3초 만에 밝기 ${Math.round(pl)} → ${Math.round(lux)}lux (${lux>pl?"어둠→빛":"빛→어둠"})`;}
+  else if(noise!=null&&pn!=null&&noise-pn>=15){place.shiftLeft=2; place.shiftWhy=`3초 만에 소음 ${Math.round(pn)} → ${Math.round(noise)}dB (소음 스파이크)`;}
+  if(place.shiftLeft>0){place.shiftLeft--; return {type:"shift",why:[place.shiftWhy]};}
+  /* 4) 인구 밀도 높음: 서울시 실시간 도시데이터 "약간 붐빔" 이상, 또는 마이크로 1분 동안 군중 소음 + 목소리 */
+  const win=k=>{const a=[];for(let i=Math.max(0,idx-WIN+1);i<=idx;i++){const x=val(samples[i],k); if(x!=null) a.push(x);}return a;};
+  const ns=win("noise").slice(-3), vs=win("voice").slice(-3), nmed=median(ns), vmed=median(vs);
+  const cg=seoulNow();
+  if(cg&&cg.lv>=3) return {type:"crowd",why:[`서울시 실시간 도시데이터: ${cg.name} "${cg.label}" (${cg.ago}분 전 기준)`,...(cg.min?[`추정 인구 ${cg.min.toLocaleString("ko-KR")}~${cg.max.toLocaleString("ko-KR")}명`]:[])]};
+  if(nmed!=null&&vmed!=null&&ns.length>=2&&nmed>=68&&vmed>=45)
+    return {type:"crowd",why:[`군중 소음이 계속 (최근 중간값 ${Math.round(nmed)}dB)`,`사람 목소리 비율 ${Math.round(vmed)}%`,...(cg?[`서울시 데이터: ${cg.name} "${cg.label}"`]:[])]};
+  /* 5) 과개방: 주변에 기댈 벽이 없고 바깥 (사람이 많지 않음) */
+  const outside=(ph&&ph.gpsOk&&osm.inBuilding===false)||(lux!=null&&lux>=2000);
+  if(dist!=null&&dist>=300&&outside)
+    return {type:"open",why:[`주변 ${Math.round(dist/100)}m 안에 기댈 벽이 없음`,ph&&osm.inBuilding===false?"지도상 건물 밖 (야외)":`바깥처럼 밝음 (${Math.round(lux).toLocaleString("ko-KR")}lux)`,...(cg?[`서울시 데이터: ${cg.name} "${cg.label}"`]:[])]};
+  /* 6) 초집중: 1시간 넘게 거의 움직이지 않은 앉은 자세 + 낮/저녁 */
+  if(place.stillSince&&still&&(tilt==null||tilt<60)){
+    const min=(new Date(s.t)-new Date(place.stillSince))/60000;
+    if(min>=60) return {type:"focus",why:[`${Math.floor(min)}분째 거의 움직임 없음`,"앉은 자세",...(home?["집 (책상 앞으로 봐요)"]:[])]};
+  }
+  return {type:"normal",why:sc?[...ew,`밀폐 점수 ${sc}점 (3점 미만)`]:["특별한 신호 없음"]};
+}
+function updatePlace(){
+  const s=samples[samples.length-1]; if(!s){place.type=null;place.why=[];return;}
+  const mv=val(s,"move");
+  if(mv!=null&&mv<0.3){ if(!place.stillSince) place.stillSince=s.t; } else place.stillSince=null;
+  const r=placeRaw(); place.type=r.type; place.why=r.why; place.vehicle=!!(r.vehicle||(r.why[0]||"").startsWith("차량"));
+  s.place=r.type;                                         /* 장소도 기록과 함께 저장 */
+  const cg=seoulNow(); if(cg) s.cg=cg.lv;                  /* 서울시 혼잡도 단계 (1 여유 ~ 4 붐빔) */
+  const pr=val(s,"pressure"), ph=phoneState();
+  const outside=(ph&&ph.gpsOk&&osm.inBuilding===false)||(val(s,"lux")>=2000&&val(s,"dist")>=300);
+  if(pr!=null&&outside) place.outdoorP=place.outdoorP==null?pr:place.outdoorP*0.7+pr*0.3;
+}
+
+/* ================= 화면: 지금 상태 ================= */
+function spark(k,color){
+  const pts=[]; for(let i=Math.max(0,samples.length-100);i<samples.length;i++){const x=val(samples[i],k); if(x!=null) pts.push(x);}
+  if(pts.length<2) return "";
+  const lo=Math.min(...pts), hi=Math.max(...pts), r=hi-lo||1, W=200, H=30;
+  const xy=pts.map((v,i)=>[(i/(pts.length-1))*(W-4)+2, H-3-((v-lo)/r)*(H-6)]), last=xy[xy.length-1];
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><polyline points="${xy.map(p=>p.map(n=>n.toFixed(1)).join(",")).join(" ")}" fill="none" stroke="${color}" stroke-width="1.6" vector-effect="non-scaling-stroke" stroke-linejoin="round"/><circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.6" fill="${color}"/></svg>`;
+}
+const BADGE={space:["space","갑자기 바뀜"],tense:["tense","긴장 방향"],change:["change","평소와 다름"],calm:["calm","평소와 비슷"]};
+function popLine(k){
+  const r=popRef();
+  if(k==="hr"&&usePop("hr")) return ` · 위험 알림: 움직임 없이 ${r.hrDanger}회/분 이상 (${profile.age||"30대"} 기준)`;
+  if(k==="breath"&&usePop("breath")) return ` · 위험 알림: ${r.breathDanger}초 이하`;
+  if(k==="spo2") return ` · 위험 알림: ${r.spo2Danger}% 이하`;
+  return "";
+}
+function card(k,idx){
+  const f=FIELDS[k], j=idx>=0?judge(k,idx):null, th=thresholds()[k], color=f.g==="space"?"var(--space)":"var(--body)";
+  const head=`<div class="card-top"><div class="card-name"><b>${esc(f.label)}</b><small>${esc(devName(f.dev))} · ${esc(f.hint)}</small></div>`;
+  if(!j) return `<div class="card">${head}<span class="badge">기록 없음</span></div><p class="basis">이 기기 값이 아직 없어요.</p></div>`;
+  if(j.before==null) return `<div class="card">${head}<span class="badge">비교 대기</span></div><div class="compare"><span class="now">${fmt(j.now,f.dp)}</span><span class="unit">${esc(f.unit)}</span></div><p class="basis">기록이 2개 이상 있어야 비교할 수 있어요.</p></div>`;
+  const [bc,bt]=BADGE[j.flag], sign=j.d>0?"+":j.d<0?"−":"±", arrow=j.d>0?"▲":j.d<0?"▼":"■";
+  return `<div class="card${j.flag!=="calm"?" flag-"+j.flag:""}">${head}<span class="badge ${bc}">${bt}</span></div>
+    <div class="compare"><span class="before">${fmt(j.before,f.dp)}</span><span class="arrow">→</span><span class="now">${fmt(j.now,f.dp)}</span><span class="unit">${esc(f.unit)}</span></div>
+    <span class="delta">${arrow} ${sign}${fmt(Math.abs(j.d),f.dp)} ${esc(f.unit)} <span style="color:var(--muted)">(${f.rel?`평소 변화 폭 ${fmt(Math.exp(j.thr),1)}배 이내`:`평소 변화 폭 ±${fmt(j.thr,f.dp)}`})</span></span>
+    ${spark(k,color)}
+    <p class="basis">직전 ${j.n}회 평균과 비교 · ${th.learned?"내 기록으로 정한 기준":"기본 기준"}${j.moving?" · 움직이는 중이라 긴장으로 보지 않음":""}${popLine(k)}</p></div>`;
+}
+function renderStatus(){
+  const idx=samples.length-1, box=$("#statusBox");
+  if(idx<0){box.innerHTML=`<div class="status"><h3>아직 기록이 없어요</h3><p>측정값이 들어오면 직전 공간과 비교해요.</p></div>`;lastStatus=null;}
+  else{
+    const J=k=>judge(k,idx);
+    const sp=SPACE.filter(k=>{const j=J(k);return j&&j.big;}).map(k=>FIELDS[k].label);
+    const tense=BODY.filter(k=>{const j=J(k);return j&&j.flag==="tense";}).map(k=>FIELDS[k].label);
+    const change=BODY.filter(k=>{const j=J(k);return j&&j.flag==="change";}).map(k=>FIELDS[k].label);
+    let cls,h,p;
+    if(idx===0){cls="";h="첫 기록이에요";p="다음 기록부터 직전 공간과 비교할 수 있어요.";}
+    else if(sp.length&&tense.length){cls="both";h="공간이 갑자기 바뀌었고, 몸도 긴장하고 있어요";p=`바뀐 공간: ${sp.join(", ")} · 몸 반응: ${tense.join(", ")}`;}
+    else if(sp.length){cls="space";h="공간이 갑자기 바뀌었어요";p=`바뀐 것: ${sp.join(", ")}. 몸은 아직 평소와 비슷해요.`;}
+    else if(tense.length){cls="body";h="공간은 그대로인데 몸이 긴장하고 있어요";p=`몸 반응: ${tense.join(", ")}${change.length?` · 그 밖에 달라진 것: ${change.join(", ")}`:""}`;}
+    else{cls="calm";h="공간도 몸도 평소와 비슷해요";p=change.length?`조금 달라진 것: ${change.join(", ")}`:"직전 1분과 비교해 큰 변화가 없어요.";}
+    box.innerHTML=`<div class="status ${cls}"><span class="when">${fmtTime(samples[idx].t)} 기록 기준</span><h3>${esc(h)}</h3><p>${esc(p)}</p></div>`;
+    lastStatus={cls,h};
+    $("#nowSum").textContent=h;
+    $("#spaceSum").textContent=sp.length?`갑자기 바뀐 것 ${sp.length}개`:"모두 평소와 비슷해요";
+    $("#bodySum").textContent=tense.length?`긴장 방향 ${tense.length}개${change.length?` · 평소와 다름 ${change.length}개`:""}`:change.length?`평소와 다름 ${change.length}개`:"모두 평소와 비슷해요";
+  }
+  $("#spaceCards").innerHTML=SPACE.map(k=>card(k,idx)).join("");
+  $("#bodyCards").innerHTML=BODY.map(k=>card(k,idx)).join("");
+}
+function renderLoc(){
+  $("#phoneBtn").textContent=phone.on?"현재 위치 끄기":"현재 위치 켜기";
+  $("#micBtn").textContent=mic.on?"마이크 끄기":"마이크 켜기";
+  const idx=samples.length-1, s=samples[idx];
+  if(!s||!place.type){$("#ctxType").textContent="판단 대기";$("#ctxBody").innerHTML=`<span class="same">측정을 시작하면 보여요</span>`;return;}
+  $("#ctxType").textContent=PLACE_NAME[place.type]||"일반 공간";
+  const U=usualFor(s.place||"normal"), out=[];
+  for(const [n,,k] of BODY_ROWS){
+    const f=FIELDS[k], x=val(s,k), u=U.get(k); if(x==null) continue;
+    if(!u||u.sd==null){out.push(`<span class="same">${esc(n)} ${fmt(x,f.dp)}${esc(f.unit)}</span>`);continue;}
+    const d=x-u.mean, outR=x>u.mean+2*u.sd||x<u.mean-2*u.sd, ar=d>0?"▲":d<0?"▼":"";
+    out.push(`<span class="${outR?(d>0?"up":"down"):"same"}">${esc(n)} ${ar} ${d>=0?"+":"−"}${fmt(Math.abs(d),f.dp)} ${esc(f.unit)}</span>`);
+  }
+  $("#ctxBody").innerHTML=out.length?out.join(""):`<span class="same">몸 센서 연결 필요</span>`;
+}
+
+/* ================= 집 위치 (GPS) ================= */
+/* true = 집 안, false = 집 밖, null = 모름 (집 미등록이거나 현재 위치가 꺼짐) */
+function homeState(ph){
+  const h=profile.home; if(!h||!ph||!ph.gps||Date.now()-phone.lastFix>600000) return null;
+  return hav(h,ph.gps)-Math.min(ph.gps.acc,80)<=(h.radius||50);
+}
+
+/* ================= 서울시 실시간 도시데이터 (인구 혼잡도) ================= */
+/* 주요 장소와 대략적인 좌표. 이름은 서울 열린데이터광장의 장소 목록과 같아야 조회돼요 */
+const HOTSPOTS=[["강남역",37.4979,127.0276],["역삼역",37.5006,127.0364],["선릉역",37.5045,127.0490],["교대역",37.4934,127.0140],["고속터미널역",37.5050,127.0049],
+  ["가로수길",37.5205,127.0230],["홍대 관광특구",37.5563,126.9236],["합정역",37.5496,126.9139],["연남동",37.5627,126.9256],["신촌·이대역",37.5571,126.9410],
+  ["명동 관광특구",37.5636,126.9826],["광화문·덕수궁",37.5717,126.9768],["종로·청계 관광특구",37.5700,126.9920],["인사동·익선동",37.5740,126.9850],["북촌한옥마을",37.5826,126.9830],
+  ["동대문 관광특구",37.5663,127.0092],["혜화역",37.5822,127.0019],["서울역",37.5547,126.9707],["용산역",37.5299,126.9648],["이태원 관광특구",37.5345,126.9946],
+  ["여의도",37.5216,126.9243],["여의도한강공원",37.5284,126.9330],["노량진",37.5131,126.9425],["잠실 관광특구",37.5113,127.0980],["건대입구역",37.5404,127.0692],
+  ["성수카페거리",37.5446,127.0559],["뚝섬한강공원",37.5292,127.0697],["왕십리역",37.5612,127.0371],["신림역",37.4842,126.9297],["서울대입구역",37.4812,126.9527],
+  ["사당역",37.4766,126.9816],["구로디지털단지역",37.4852,126.9015]];
+const LV={"여유":1,"보통":2,"약간 붐빔":3,"붐빔":4};
+const seoul={name:null,dist:null,lv:null,label:null,min:null,max:null,at:0,tried:0,err:null};
+function nearestHotspot(fix){let best=null;for(const [n,la,lo] of HOTSPOTS){const d=hav(fix,{lat:la,lng:lo}); if(!best||d<best.d) best={name:n,d};}return best;}
+function findKey(o,k){if(!o||typeof o!=="object") return null; if(k in o) return o[k]; for(const v of Object.values(o)){const r=findKey(v,k); if(r!=null) return r;} return null;}
+async function seoulMaybeFetch(fix){
+  const key=(profile.seoulKey||"").trim(); if(!key) {seoul.err="인증키 미입력"; return;}
+  const near=nearestHotspot(fix); if(!near||near.d>700){seoul.name=null; seoul.err=null; return;}   /* 700m 안에 등록 장소가 있을 때만 */
+  if(seoul.name===near.name&&Date.now()-seoul.tried<300000) return;                             /* 5분마다 갱신 */
+  seoul.tried=Date.now(); seoul.name=near.name; seoul.dist=near.d;
+  const base=(profile.seoulProxy||"https://openapi.seoul.go.kr:8088").replace(/\/$/,"");
+  try{
+    const r=await fetch(`${base}/${encodeURIComponent(key)}/json/citydata_ppltn/1/5/${encodeURIComponent(near.name)}`);
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    const j=await r.json(), lvTxt=findKey(j,"AREA_CONGEST_LVL");
+    if(!lvTxt||!LV[lvTxt]){seoul.err=findKey(j,"MESSAGE")||"이 장소의 데이터가 없어요"; seoul.lv=null; return;}
+    seoul.lv=LV[lvTxt]; seoul.label=lvTxt; seoul.at=Date.now(); seoul.err=null;
+    seoul.min=Number(findKey(j,"AREA_PPLTN_MIN"))||null; seoul.max=Number(findKey(j,"AREA_PPLTN_MAX"))||null;
+  }catch(e){seoul.err="서울시 서버에 연결하지 못했어요 (중계 주소가 필요할 수 있어요)"; seoul.lv=null;}
+}
+function seoulNow(){
+  if(!phone.on||!seoul.lv||!seoul.name||Date.now()-seoul.at>900000) return null;
+  return {name:seoul.name,lv:seoul.lv,label:seoul.label,min:seoul.min,max:seoul.max,ago:Math.round((Date.now()-seoul.at)/60000)};
+}
+
+/* ================= 마이크 (소음·목소리 비율) ================= */
+/* 녹음은 저장하지 않고, 소리 크기와 목소리 대역 비율만 계산해요 */
+const mic={on:false,stream:null,an:null,buf:null,fbuf:null,timer:null,acc:{n:0,db:0,voice:0},err:null};
+async function micOn(){
+  if(!window.isSecureContext||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){toast("마이크는 https:// 주소에서만 쓸 수 있어요.",true);return;}
+  try{
+    mic.stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+    unlockAudio(); const src=actx.createMediaStreamSource(mic.stream);
+    mic.an=actx.createAnalyser(); mic.an.fftSize=2048; mic.an.smoothingTimeConstant=0.3; src.connect(mic.an); mic.mute=actx.createGain(); mic.mute.gain.value=0; mic.an.connect(mic.mute); mic.mute.connect(actx.destination);   /* 사파리는 출력까지 연결돼야 소리를 분석해요 (소리는 0으로 꺼 둠) */
+    mic.buf=new Float32Array(mic.an.fftSize); mic.fbuf=new Float32Array(mic.an.frequencyBinCount);
+    mic.timer=setInterval(micRead,250); mic.on=true; mic.err=null; mic.acc={n:0,db:0,voice:0};
+    renderLoc(); syncForm(); toast("마이크를 켰어요. 녹음은 저장하지 않아요.");
+  }catch(e){mic.err=e&&e.name==="NotAllowedError"?"마이크 권한이 거절됐어요":"마이크를 켜지 못했어요"; toast(mic.err,true); renderLoc();}
+}
+function micOff(){
+  clearInterval(mic.timer); try{mic.mute&&mic.mute.disconnect();}catch(e){} if(mic.stream) mic.stream.getTracks().forEach(t=>t.stop());
+  mic.on=false; mic.stream=null; renderLoc(); syncForm(); toast("마이크를 껐어요");
+}
+function micRead(){
+  mic.an.getFloatTimeDomainData(mic.buf); let sq=0; for(const x of mic.buf) sq+=x*x;
+  const rms=Math.sqrt(sq/mic.buf.length), dbfs=20*Math.log10(rms+1e-9);
+  mic.an.getFloatFrequencyData(mic.fbuf);
+  const hz=actx.sampleRate/mic.an.fftSize; let vE=0, tE=0;
+  for(let i=1;i<mic.fbuf.length;i++){const f=i*hz; if(f<80||f>8000) continue; const e=Math.pow(10,mic.fbuf[i]/10); tE+=e; if(f>=300&&f<=3000) vE+=e;}
+  mic.acc.n++; mic.acc.db+=dbfs; mic.acc.voice+=tE>0?vE/tE:0;
+}
+/* 3초 동안의 평균. 휴대폰 마이크는 보정이 안 돼 있어서 dB는 대략적인 값이에요 */
+function micSample(){
+  if(!mic.on||mic.acc.n<3) return null;
+  const db=mic.acc.db/mic.acc.n, voice=mic.acc.voice/mic.acc.n*100; mic.acc={n:0,db:0,voice:0};
+  const out={noise:Math.max(20,Math.min(120,Math.round(db+94))),voice:Math.round(voice)};
+  mic.last={...out,t:Date.now()}; return out;
+}
+
+/* ================= 지도 (Leaflet + 오픈스트리트맵, 무료) ================= */
+let map=null, meDot=null, accCircle=null, homeCircle=null, bLayer=null, bDrawnAt=null, followMe=true;
+function ensureMap(){
+  if(map) return true;
+  if(!window.L){$("#mapNote").textContent="지도를 불러오지 못했어요. 인터넷 연결을 확인해 주세요.";return false;}
+  if($("#v-now").hidden) return false;
+  const c=phone.gps?[phone.gps.lat,phone.gps.lng]:profile.home?[profile.home.lat,profile.home.lng]:[37.5665,126.9780];
+  map=L.map("map",{zoomControl:true}).setView(c,phone.gps||profile.home?17:13);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(map);
+  map.on("dragstart",()=>{followMe=false;});
+  return true;
+}
+function updateMap(){
+  if(!ensureMap()) return;
+  if(profile.home){
+    const h=[profile.home.lat,profile.home.lng], r=profile.home.radius||50;
+    if(!homeCircle) homeCircle=L.circle(h,{radius:r,color:"#6B4A93",weight:2,dashArray:"5 5",fillOpacity:.06,interactive:false}).addTo(map); else homeCircle.setLatLng(h).setRadius(r);
+  }else if(homeCircle){map.removeLayer(homeCircle);homeCircle=null;}
+  if(osm.at&&bDrawnAt!==osm.at){
+    if(bLayer) map.removeLayer(bLayer);
+    bLayer=L.layerGroup(osm.buildings.map(r=>L.polygon(r.map(p=>[p.lat,p.lng]),{color:"#8F5600",weight:1,fillOpacity:.08,interactive:false}))).addTo(map);
+    bDrawnAt=osm.at;
+  }
+  if(!phone.on||!phone.gps){
+    if(meDot){map.removeLayer(meDot);meDot=null;} if(accCircle){map.removeLayer(accCircle);accCircle=null;}
+    $("#mapNote").textContent=phone.on?(phone.gpsErr||"내 위치를 찾는 중이에요…"):"\"현재 위치 켜기\"를 누르면 지도에 내 위치가 빨간 점으로 표시돼요.";
+    return;
+  }
+  const ll=[phone.gps.lat,phone.gps.lng];
+  if(!accCircle) accCircle=L.circle(ll,{radius:phone.gps.acc,color:"#E02424",weight:1,fillColor:"#E02424",fillOpacity:.12,interactive:false}).addTo(map); else accCircle.setLatLng(ll).setRadius(phone.gps.acc);
+  if(!meDot) meDot=L.circleMarker(ll,{radius:8,color:"#fff",weight:3,fillColor:"#E02424",fillOpacity:1}).addTo(map).bindTooltip("지금 내 위치"); else meDot.setLatLng(ll);
+  meDot.bringToFront();
+  if(followMe) map.setView(ll,Math.max(map.getZoom(),16),{animate:false});
+  const note=$("#mapNote"); note.textContent=followMe?"빨간 점이 지금 내 위치예요. 지도를 손으로 움직이면 따라가기가 멈춰요.":"지도를 직접 움직여서 따라가기를 멈췄어요.";
+  if(!followMe){const b=document.createElement("button");b.type="button";b.className="btn ghost small";b.style.marginLeft="8px";b.textContent="내 위치로";b.onclick=()=>{followMe=true;updateMap();};note.appendChild(b);}
+}
+
+/* ================= (입력 칸은 없앴어요) ================= */
+function resetTime(){}
+function addSample(s){
+  samples.push(s); samples.sort((a,b)=>a.t.localeCompare(b.t));
+  thrCache=null; updatePlace();
+  if(!save()) toast("브라우저 저장소가 막혀 있어 저장하지 못했어요.",true);
+  renderAll(); checkAlarm();
+}
+
+/* ================= 화면: 내 정보 ================= */
+function placeStats(){
+  const by={}; for(const c in CTX) by[c]=[];
+  for(const s of samples) if(s.place&&s.label!=="panic") by[s.place].push(s);
+  return by;
+}
+function enough(by){
+  const ready=Object.keys(by).filter(c=>by[c].length>=PLACE_MIN);
+  return {ok:samples.length>=1200&&ready.length>=1,ready,total:samples.length};
+}
+function rangeTxt(arr,dp,mode){
+  if(arr.length<2) return "—";
+  if(mode==="pct") return `${fmt(pct(arr,0.1),dp)} ~ ${fmt(pct(arr,0.9),dp)}`;
+  const t=stats(arr); return `${fmt(Math.max(0,t.mean-2*t.sd),dp)} ~ ${fmt(t.mean+2*t.sd,dp)}`;
+}
+function renderMe(){
+  $("#m-age").value=profile.age||"";
+  $("#meNote").hidden=!profile.note; $("#meNote").textContent=profile.note?`불러온 백업: ${profile.note}`:"";
+  $("#homeInfo").textContent=profile.home?`등록됨 · ${new Date(profile.home.savedAt).toLocaleDateString("ko-KR")} 저장 (오차 ${Math.round(profile.home.acc)}m)`:"아직 등록하지 않았어요";
+  $("#m-rad").value=String((profile.home&&profile.home.radius)||50);
+  $("#m-key").value=profile.seoulKey||""; $("#m-proxy").value=profile.seoulProxy||"";
+  const by=placeStats(), en=enough(by), r=popRef();
+  if(!en.ok){
+    $("#meReady").innerHTML=`<div class="ready wait"><span>아직 장소별 표를 만들 만큼 기록이 쌓이지 않았어요 (전체 ${en.total.toLocaleString("ko-KR")}/1,200개 · 200개 넘은 장소 ${en.ready.length}곳). 그동안은 연령대 기준으로 위험을 판단해요.</span></div>`;
+    const row=(n,a,b,c)=>`<tr><td><b>${n}</b></td><td class="num">${a}</td><td class="num danger">${b}</td><td>${c}</td></tr>`;
+    $("#meTables").innerHTML=`<div class="sec-head"><h3 style="font-size:18px">내 기준 범위</h3><span class="hint">${esc(profile.age||"30대 (입력 전 기본값)")} 기준</span></div>
+      <div class="tbl-wrap"><table><thead><tr><th>측정</th><th>평소 범위</th><th>위험 알림</th><th>참고</th></tr></thead><tbody>
+      ${row("심박수","60~100 회/분",`움직임 없이 ${r.hrDanger} 회/분 이상`,"걷거나 운동 중일 때는 위험으로 보지 않아요")}
+      ${row("호흡","1분에 12~20회 (주기 3~5초)",`1분에 22회 이상 (주기 ${r.breathDanger}초 이하)`,"스트레치 밴드를 찼을 때")}
+      ${row("혈중 산소","95~100 %",`${r.spo2Danger} % 이하`,"항상 확인 (낮으면 공황보다 다른 원인일 수 있어요)")}
+      </tbody></table></div>
+      <p class="hint">식은땀·HRV·근육 긴장·미세 떨림은 사람마다 차이가 커서 평균값이 없어요. 처음부터 "직전 1분보다 갑자기 바뀌었는지"로만 판단해요.</p>`;
+    return;
+  }
+  $("#meReady").innerHTML=`<div class="ready"><span>기록이 충분히 쌓여서 장소별 표로 바꿨어요 (전체 ${en.total.toLocaleString("ko-KR")}개 · 표가 만들어진 장소 ${en.ready.length}곳). "공황발작"으로 답한 구간은 평소 범위 계산에서 빠져요.</span></div>`;
+  const noByPlace={}; for(const e of events) if(e.answer==="no") noByPlace[e.ctx]=(noByPlace[e.ctx]||0)+1;
+  const spaceCols=["lux","noise","voice","speed","co2","dist","move","tilt"], bodyCols=["hr","hrv","gsr","spo2","breath","emg","tremor","temp","pupil"];
+  const rowsS=[], rowsB=[];
+  for(const c of Object.keys(CTX)){
+    const list=by[c], name=`<b>${esc(SHORT[c])}</b><span class="sub">${list.length.toLocaleString("ko-KR")}개</span>`;
+    if(list.length<PLACE_MIN){
+      const w=`<td colspan="99" class="hint">쌓는 중 ${list.length}/${PLACE_MIN}</td>`;
+      rowsS.push(`<tr><td>${name}</td>${w}</tr>`); rowsB.push(`<tr><td>${name}</td>${w}</tr>`); continue;
+    }
+    const col=k=>list.map(s=>val(s,k)).filter(x=>x!=null);
+    rowsS.push(`<tr><td>${name}</td>${spaceCols.map(k=>`<td class="num">${rangeTxt(col(k),FIELDS[k].dp,"pct")}</td>`).join("")}</tr>`);
+    rowsB.push(`<tr><td>${name}</td>${bodyCols.map(k=>`<td class="num">${rangeTxt(col(k),FIELDS[k].dp,"sd")}</td>`).join("")}<td class="num">${noByPlace[c]||0}회</td></tr>`);
+  }
+  const th=(cols,cls)=>cols.map(k=>`<th class="${cls}">${esc(FIELDS[k].label)}<br>${esc(FIELDS[k].unit)}</th>`).join("");
+  $("#meTables").innerHTML=`
+    <div class="sec-head"><h3 style="font-size:18px">장소별 공간 특성 범위</h3><span class="hint">그 장소에서 흔히 측정되는 범위 (가운데 80%)</span></div>
+    <div class="tbl-wrap"><table><thead><tr><th>장소</th>${th(spaceCols,"sp")}</tr></thead><tbody>${rowsS.join("")}</tbody></table></div>
+    <div class="sec-head"><h3 style="font-size:18px">장소별 내 몸 평소 범위</h3><span class="hint">평균 ± 2×표준편차 · 공황 의심 → "아니오" 횟수 포함</span></div>
+    <div class="tbl-wrap"><table><thead><tr><th>장소</th>${th(bodyCols,"bd")}<th class="bd">공황 아님<br>판단</th></tr></thead><tbody>${rowsB.join("")}</tbody></table></div>
+    <p class="hint">기압은 날씨·층수에 따라 늘 달라서 장소 특성에서 뺐어요. 대신 기압 변화는 엘리베이터·지하 판단에 쓰여요.</p>`;
+}
+$("#homeBtn").addEventListener("click",()=>{
+  if(!window.isSecureContext||!("geolocation" in navigator)){toast("위치는 https:// 주소에서만 쓸 수 있어요.",true);return;}
+  $("#homeBtn").textContent="위치 찾는 중…";
+  navigator.geolocation.getCurrentPosition(pos=>{
+    const c=pos.coords; profile={...profile,home:{lat:c.latitude,lng:c.longitude,acc:c.accuracy,radius:Number($("#m-rad").value)||50,savedAt:new Date().toISOString()}};
+    saveProfile(); renderMe(); $("#homeBtn").textContent="지금 위치를 집으로 저장";
+    toast(c.accuracy>60?`집 위치를 저장했어요. 다만 오차가 ${Math.round(c.accuracy)}m로 커요. 창가에서 한 번 더 눌러 주세요.`:`집 위치를 저장했어요 (오차 ${Math.round(c.accuracy)}m)`,c.accuracy>60);
+  },err=>{$("#homeBtn").textContent="지금 위치를 집으로 저장"; toast(err.code===1?"위치 권한이 거절됐어요. 브라우저 설정에서 허용해 주세요.":"위치를 찾지 못했어요. 창가에서 다시 시도해 주세요.",true);},{enableHighAccuracy:true,timeout:20000,maximumAge:0});
+});
+$("#m-rad").addEventListener("change",()=>{if(profile.home){profile.home={...profile.home,radius:Number($("#m-rad").value)||50};saveProfile();toast("집 범위를 바꿨어요");}});
+$("#homeDel").addEventListener("click",()=>{if(!profile.home){toast("등록된 집 위치가 없어요.",true);return;} const {home,...rest}=profile; profile=rest; saveProfile(); renderMe(); toast("집 위치를 지웠어요");});
+$("#keySave").addEventListener("click",()=>{
+  const k=$("#m-key").value.trim(), px=$("#m-proxy").value.trim();
+  if(px&&!/^https:\/\//.test(px)){toast("중계 주소는 https:// 로 시작해야 해요.",true);return;}
+  profile={...profile,seoulKey:k||null,seoulProxy:px||null}; seoul.tried=0; saveProfile(); toast(k?"인증키를 저장했어요. 현재 위치가 켜져 있으면 5분 안에 조회해요.":"인증키를 지웠어요");
+});
+$("#meForm").addEventListener("submit",e=>{e.preventDefault(); profile={...profile,age:$("#m-age").value||null}; saveProfile()?toast("연령대를 저장했어요"):toast("저장하지 못했어요.",true); thrCache=null; renderMe();});
+
+/* ================= 화면: 데이터 쌓기 현황 ================= */
+function devCounts(){
+  return DEVICES.map(d=>{const keys=KEYS.filter(k=>FIELDS[k].dev===d.id); let n=0; for(const s of samples) if(keys.some(k=>val(s,k)!=null)) n++; return {d,n};});
+}
+function renderProg(){
+  const dc=devCounts(), done=dc.filter(x=>x.n>=x.d.target).length;
+  $("#devSum").textContent=`${DEVICES.length}개 기기 중 ${done}개 목표 달성`;
+  $("#devList").innerHTML=dc.map(({d,n})=>`<div class="dev" style="--c:var(--${d.g})"><div class="dev-top"><b>${esc(devName(d.id))} · ${esc(d.what)}</b><span class="${n>=d.target?"done":""}">${n.toLocaleString("ko-KR")} / ${d.target.toLocaleString("ko-KR")}${n>=d.target?" 완료":""}</span></div>
+    <div class="bar" aria-hidden="true"><i style="width:${Math.min(100,n/d.target*100)}%"></i></div><small>목표 ${d.target}개 = 3초 간격 ${Math.round(d.target*INTERVAL/60)}분 · ${esc(d.why)}</small></div>`).join("");
+  const by=placeStats(), ready=Object.keys(by).filter(c=>by[c].length>=PLACE_MIN).length;
+  $("#placeSum").textContent=`${Object.keys(CTX).length}곳 중 ${ready}곳 표 완성`;
+  $("#placeList").innerHTML=Object.keys(CTX).map(c=>{const n=by[c].length;return `<div class="dev" style="--c:var(--space)"><div class="dev-top"><b>${esc(SHORT[c])}</b><span class="${n>=PLACE_MIN?"done":""}">${n.toLocaleString("ko-KR")} / ${PLACE_MIN}${n>=PLACE_MIN?" 완료":""}</span></div><div class="bar" aria-hidden="true"><i style="width:${Math.min(100,n/PLACE_MIN*100)}%"></i></div><small>${esc(CTX[c])}</small></div>`;}).join("");
+  const ans=events.filter(e=>e.answer), yes=ans.filter(e=>e.answer==="panic").length;
+  $("#evSum").textContent=ans.length?`공황발작 ${yes}회 · 공황 아님 ${ans.length-yes}회`:"아직 없어요";
+  $("#evList").innerHTML=ans.length?[...ans].reverse().map(e=>`<li><span class="when">${fmtTime(e.t)}</span><span class="badge ${e.answer==="panic"?"tense":"calm"}">${e.answer==="panic"?"공황발작":"공황 아님"}</span><span>${esc(SHORT[e.ctx]||"")} · ${esc(GUIDES[e.guide]?GUIDES[e.guide].kind:"")}</span><span style="color:var(--muted)">${esc(e.why.slice(0,3).join(", "))}</span></li>`).join(""):`<li style="color:var(--muted)">경보가 울린 뒤 "예/아니오"로 답하면 여기에 쌓여요.</li>`;
+}
+
+/* ================= 메뉴 & 화면 전환 ================= */
+function renderHome(){
+  if(!samples.length) $("#liveNow").innerHTML=`<i class="dot"></i>아직 기록이 없어요`;
+  else{ if(!lastStatus) renderStatus(); $("#liveNow").innerHTML=`<i class="dot ${lastStatus?lastStatus.cls:""}"></i>${esc(place.type?SHORT[place.type]+" · ":"")}${esc(lastStatus?lastStatus.h:"")}`; }
+  const by=placeStats(), en=enough(by);
+  $("#liveMe").innerHTML=`<i class="dot ${en.ok?"calm":""}"></i>${en.ok?`장소별 표 ${en.ready.length}곳 완성`:`${esc(profile.age||"연령대 미입력")} · 장소별 표는 쌓는 중`}`;
+  const yes=events.filter(e=>e.answer==="panic").length, no=events.filter(e=>e.answer==="no").length;
+  $("#liveProg").innerHTML=`<i class="dot ${auto.mode!=="stop"?"run":""}"></i>전체 ${samples.length.toLocaleString("ko-KR")}개 · 공황발작 ${yes}회 · 공황 아님 ${no}회`;
+}
+function renderAll(){
+  thrCache=null; lastStatus=null;
+  if(view==="now"){renderHeadline(); renderMeasure(); renderStatus(); renderLoc();}
+  else if(view==="me") renderMe();
+  else if(view==="prog") renderProg();
+  else if(view==="home") renderHome();
+}
+const VIEWS=["home","now","me","prog","alarm"];
+function go(v){
+  if(pendingAlarm()&&v!=="alarm") return;
+  view=v; for(const id of VIEWS) $("#v-"+id).hidden=id!==v;
+  renderAll(); if(v==="now"){syncForm(); if(map) setTimeout(()=>map.invalidateSize(),50); else updateMap();}
+  window.scrollTo({top:0,behavior:"auto"});
+  const h=$("#v-"+v+" h2"); if(h&&v!=="home"){h.setAttribute("tabindex","-1");h.focus({preventScroll:true});}
+}
+document.addEventListener("click",e=>{const b=e.target.closest("[data-go]"); if(b){e.preventDefault(); go(b.dataset.go);}});
+
+/* ================= 상황별 음성 안내 & 경보 ================= */
+const GUIDES={
+  enclosed:{kind:"밀폐 공간 · 지하철, 엘리베이터, 버스",title:"고개를 들고 앞의 한 점을 보세요",lines:["눈을 감지 마세요. 고개를 들고 앞의 한 점을 보세요.","두 손을 모아 코와 입을 완전히 덮으세요.","모은 손안으로 숨을 내쉬고, 다시 들이마십니다. 천천히."]},
+  crowd:{kind:"인구 밀도가 높은 공간 · 번화가, 광장",title:"바닥에 쪼그려 앉거나 벽에 기대세요",lines:["당장 바닥에 쪼그려 앉거나 벽에 기대세요.","고개를 푹 숙이고 눈을 꽉 감으세요.","주머니 속 차가운 열쇠나 핸드폰 모서리를 손에 꽉 쥐세요."]},
+  shift:{kind:"급격한 전이 · 어둠↔빛, 정적↔소음",title:"그 자리에 바로 멈춰 서세요",lines:["걷지 말고 그 자리에 바로 멈춰 서세요.","눈을 크게 뜨고 파란색 물건 3개를 찾으세요.","제 박자에 맞춰 숨을 길게 내뱉습니다. 하나, 둘, 셋."]},
+  focus:{kind:"초집중 · 책상 앞 작업 중",title:"하던 일을 멈추고 일어나세요",lines:["하던 일을 멈추고 당장 자리에서 일어나세요.","허리를 펴고 고개를 들어 천장을 바라보세요.","가슴을 활짝 열고, 찬물을 한 잔 마시세요."]},
+  bed:{kind:"완전한 이완 · 자기 전 침대 위",title:"침대에서 일어나 불을 켜세요",lines:["이불을 걷고 침대에서 당장 일어나세요.","방의 불을 아주 환하게 켜세요.","방 밖으로 나가서 가볍게 제자리걸음을 걸으세요."]},
+  other:{kind:"일반 공간 · 숨이 빨라질 때",title:"숨을 길게 내쉬세요",lines:["괜찮아요. 지금 숨이 조금 빨라졌어요.","입술을 동그랗게 모아 숨을 아주 천천히, 길게 내쉬세요.","들이쉴 때보다 두 배 길게 내쉬면 돼요."]},
+  oxygen:{kind:"혈중 산소가 낮아요",title:"숨쉬기가 계속 힘들면 119에 연락하세요",lines:["괜찮아요. 몸의 산소가 평소보다 낮게 나왔어요.","손가락 센서가 잘 붙어 있는지 확인해 주세요.","편하게 앉아서 천천히 숨을 쉬세요.","숨쉬기가 계속 힘들면, 119에 연락하세요."]}
+};
+/* 우선순위: 산소 낮음 → 지금 공간별 안내 (과개방은 인구 밀도 안내와 같이 써요) */
+const GUIDE_OF={bed:"bed",enclosed:"enclosed",crowd:"crowd",open:"crowd",shift:"shift",focus:"focus",normal:"other"};
+function pickGuide(ctx,flags,abs){
+  if(abs&&abs.lowO2) return "oxygen";
+  return GUIDE_OF[ctx]||"other";
+}
+const pendingAlarm=()=>events.find(e=>!e.answer);
+let cooldownUntil=0, muted=false, actx=null;
+/* 평소 괜찮을 때: 지금 공간에서 "공황발작"이 아니었던 기록 (최근 2분은 빼요). 30개가 안 되면 전체 기록 */
+let uCache={key:null,val:null};
+function usualFor(p){
+  const key=samples.length+"|"+p; if(uCache.key===key) return uCache.val;
+  const end=Math.max(0,samples.length-40); let list=[], scope="place";
+  for(let i=0;i<end;i++){const s=samples[i]; if(s.place===p&&s.label!=="panic") list.push(i);}
+  if(list.length<30){list=[]; scope="all"; for(let i=0;i<end;i++) if(samples[i].label!=="panic") list.push(i);}
+  const memo={}, jm={};
+  const get=k=>{ if(k in memo) return memo[k]; const a=[]; for(const i of list){const x=val(samples[i],k); if(x!=null) a.push(x);}
+    if(a.length<30) return memo[k]=null; const t=stats(a); return memo[k]={n:a.length,mean:t.mean,sd:t.sd,p10:pct(a,0.1),p90:pct(a,0.9)}; };
+  const jump=k=>{ if(k in jm) return jm[k]; const a=[]; for(const i of list.slice(-3000)){const x=val(samples[i],k), m=prevMean(k,i); if(x!=null&&m&&m.n>=3) a.push(Math.abs(x-m.mean));}
+    return jm[k]=a.length>=30?pct(a,0.9):null; };
+  let stay=null; { const runs=[]; let st=null;
+    for(let i=0;i<samples.length;i++){ const s=samples[i], pr=samples[i-1];
+      const cont=pr&&pr.place===s.place&&new Date(s.t)-new Date(pr.t)<=10000;
+      if(!cont){ if(st&&st.p===p) runs.push((new Date(pr.t)-new Date(st.t))/60000); st={p:s.place,t:s.t}; } }
+    const r=runs.filter(m=>m>=0.5); stay=r.length?median(r):null; }
+  const cgs={}; for(const i of list){const c=samples[i].cg; if(c) cgs[c]=(cgs[c]||0)+1;}
+  const cgMode=Object.keys(cgs).sort((a,b)=>cgs[b]-cgs[a])[0]||null;
+  return (uCache={key,val:{p,scope,n:list.length,get,jump,stay,cgMode}}).val;
+}
+/* 공황 위험 지표 (첨부한 기준표). 순간 잡음을 거르려고 대부분 2회(6초) 연속일 때만 셉니다 */
+let riskCache={key:null,val:null};
+function riskAt(idx){
+  const key=idx+"|"+samples.length; if(riskCache.key===key) return riskCache.val;
+  const s=samples[idx], P=s.place||"normal", U=usualFor(P), S={}, Bd={};
+  const g=(i,k)=>i>=0&&samples[i]?val(samples[i],k):null, mv=i=>g(i,"move")||0, still=i=>mv(i)<MOVING;
+  const two=f=>f(idx)&&idx>=1&&f(idx-1);
+  const run=(n,f)=>{if(idx-n+1<0) return false; for(let i=idx-n+1;i<=idx;i++) if(!f(i)) return false; return true;};
+  const pm=(k,i)=>{const m=prevMean(k,i); return m&&m.n>=3?m.mean:null;};
+  const sg=d=>d>=0?"+":"−";
+  /* 공간 지표 */
+  const co2B=i=>{const u=U.get("co2"); return u?u.mean:pm("co2",i);};
+  const fCo2=i=>{const x=g(i,"co2"),b=co2B(i); return x!=null&&b!=null&&x-b>=500;};
+  if(two(fCo2)) S.co2=`공기 답답함: 평소보다 +${Math.round(g(idx,"co2")-co2B(idx))}ppm`;
+  const fLux=i=>{const x=g(i,"lux"),b=pm("lux",i); return x!=null&&b!=null&&Math.abs(x-b)>=500;};
+  if(two(fLux)){const d=g(idx,"lux")-pm("lux",idx); S.luxJump=`밝기 급변: ${sg(d)}${fmt(Math.abs(d),0)} lux`;}
+  if(P==="bed"&&run(3,i=>{const x=g(i,"lux"); return x!=null&&x<=10;})) S.luxLow=`어두운 상태 유지 (${fmt(g(idx,"lux"),0)} lux)`;
+  {const x=g(idx,"noise"),b=pm("noise",idx); if(x!=null&&b!=null&&x-b>=20) S.noiseSpike=`소음 스파이크: +${Math.round(x-b)}dB`;}
+  if(P==="crowd"){const a=[g(idx,"noise"),g(idx-1,"noise"),g(idx-2,"noise")].filter(x=>x!=null), m=median(a); if(a.length>=2&&m>=75) S.crowdNoise=`군중 소음 지속 (${Math.round(m)}dB)`;}
+  const fNear=i=>{const x=g(i,"dist"); return x!=null&&x<=100;};
+  if(two(fNear)) S.distNear=`벽이 ${fmt(g(idx,"dist"),0)}cm까지 다가옴`;
+  if((P==="open"||P==="crowd")&&g(idx,"dist")!=null&&g(idx,"dist")>=150) S.distOpen="1.5m 안에 기댈 곳 없음";
+  if(P==="focus") S.stillFocus="1시간 넘게 정적 자세";
+  {let i=idx; while(i>=0&&(g(i,"tilt")??0)>=60&&mv(i)<0.3) i--;
+   if(i<idx){const min=(new Date(s.t)-new Date(samples[i+1].t))/60000; if(min>=10) S.tiltFlat=`누운 자세 ${Math.floor(min)}분째 그대로`;}}
+  /* 몸 지표 */
+  const hrB=(U.get("hr")||{}).mean??75;
+  const fHr=i=>{const x=g(i,"hr"); return x!=null&&x-hrB>=30&&still(i);};
+  if(two(fHr)) Bd.hr=`심박수 평소보다 +${Math.round(g(idx,"hr")-hrB)}회/분`;
+  /* 평소 범위(평균 ± 2×표준편차)를 넘고, 직전 1분보다 급하게 바뀌었을 때만 (천천히 바뀌는 건 장소 변화로 봐요) */
+  const sdHit=(k,dir,needStill)=>i=>{const u=U.get(k),x=g(i,k),b=pm(k,i); if(!u||u.sd==null||x==null||b==null||(needStill&&!still(i))) return false;
+    return (dir>0?x>u.mean+2*u.sd:x<u.mean-2*u.sd)&&dir*(x-b)>=u.sd;};
+  if(two(sdHit("gsr",1,true))) Bd.gsr="식은땀: 평소 범위(평균+2표준편차)를 넘음";
+  if(two(sdHit("hrv",-1,true))) Bd.hrv="심박 간격 변화가 굳어짐 (평소 범위 아래)";
+  if(run(8,i=>{const x=g(i,"spo2"); return x!=null&&x>=99;})) Bd.spo2=`혈중 산소 ${fmt(g(idx,"spo2"),0)}%에 고정 (과호흡 의심)`;
+  const fBr=i=>{const x=g(i,"breath"); return x!=null&&x<=3&&still(i);};
+  if(two(fBr)) Bd.breath=`호흡 1분에 ${Math.round(60/g(idx,"breath"))}회`;
+  if(two(sdHit("tremor",1,true))) Bd.tremor="미세 떨림(4~12Hz)이 평소 범위를 넘음";
+  if(two(sdHit("emg",1,true))) Bd.emg="근육 긴장도가 평소 범위를 넘음";
+  const tB=i=>{const a=[]; for(let j=i-40;j<=i-20;j++){const x=g(j,"temp"); if(x!=null) a.push(x);} return a.length>=5?a.reduce((p,c)=>p+c,0)/a.length:null;};
+  const fT=i=>{const x=g(i,"temp"),b=tB(i); return x!=null&&b!=null&&b-x>=1;};
+  if(two(fT)) Bd.temp=`말초 체온 1~2분 새 −${fmt(tB(idx)-g(idx,"temp"),1)}°C`;
+  return (riskCache={key,val:{S,B:Bd,P,U}}).val;
+}
+/* 판단: 공간 지표 1개 이상 + 몸 지표 1개 이상, 또는 몸 지표 2개 이상 */
+function checkAlarm(){
+  const idx=samples.length-1; if(idx<1||pendingAlarm()||Date.now()<cooldownUntil) return;
+  const R=riskAt(idx), nS=Object.keys(R.S).length, nB=Object.keys(R.B).length;
+  if(!((nS>=1&&nB>=1)||nB>=2)) return;
+  const ctx=place.type||"normal", o2=val(samples[idx],"spo2");
+  const guide=o2!=null&&o2<=92?"oxygen":(GUIDE_OF[ctx]||"other");
+  const ev={id:"e"+Date.now().toString(36),t:samples[idx].t,ctx,guide,why:[...Object.values(R.B),...Object.values(R.S)],answer:null,answeredAt:null};
+  events.push(ev); save(); showAlarm(ev,true);
+}
+function unlockAudio(){try{ if(!actx) actx=new (window.AudioContext||window.webkitAudioContext)(); if(actx.state==="suspended") actx.resume(); }catch(e){}}
+function siren(){
+  unlockAudio(); if(!actx) return;
+  const t0=actx.currentTime+0.05;
+  for(let i=0;i<2;i++){
+    const o=actx.createOscillator(), g=actx.createGain(), st=t0+i;
+    o.type="square"; o.frequency.setValueAtTime(660,st); o.frequency.linearRampToValueAtTime(1000,st+0.35); o.frequency.linearRampToValueAtTime(660,st+0.7);
+    g.gain.setValueAtTime(0.0001,st); g.gain.exponentialRampToValueAtTime(0.25,st+0.05); g.gain.setValueAtTime(0.25,st+0.62); g.gain.exponentialRampToValueAtTime(0.0001,st+0.72);
+    o.connect(g).connect(actx.destination); o.start(st); o.stop(st+0.75);
+  }
+}
+function vibrate(){try{if(navigator.vibrate) navigator.vibrate([500,250,500]);}catch(e){}}
+/* 안내 음성: 스크립트 전체를 times번 이어서 읽어요 (경보·시연 모두 2번) */
+function speak(key,times){
+  if(muted||!("speechSynthesis" in window)) return;
+  const g=GUIDES[key]; if(!g) return;
+  try{ speechSynthesis.cancel();
+    const v=speechSynthesis.getVoices().find(x=>/^ko/i.test(x.lang));
+    for(let i=0;i<(times||2);i++){ const u=new SpeechSynthesisUtterance(g.lines.join(" ")); u.lang="ko-KR"; u.rate=0.85; u.pitch=0.95; if(v) u.voice=v; speechSynthesis.speak(u); }
+  }catch(e){}
+}
+/* 아이폰은 첫 음성을 손가락 터치 안에서 한 번 열어 둬야 나중에 소리가 나요 */
+let speechUnlocked=false;
+function unlockSpeech(){ if(speechUnlocked||!("speechSynthesis" in window)) return; try{const u=new SpeechSynthesisUtterance(" "); u.volume=0; speechSynthesis.speak(u); speechUnlocked=true;}catch(e){} }
+function showAlarm(ev,withSound){
+  view="alarm"; for(const id of VIEWS) $("#v-"+id).hidden=id!=="alarm";
+  document.body.classList.add("alarming"); document.body.classList.remove("alarm-flash"); void document.body.offsetWidth;
+  document.body.classList.add("alarm-flash"); setTimeout(()=>document.body.classList.remove("alarm-flash"),6200);
+  const g=GUIDES[ev.guide];
+  $("#guideKind").textContent=g.kind; $("#guideTitle").textContent=g.title;
+  $("#guideLines").innerHTML=g.lines.map(l=>`<li>${esc(l)}</li>`).join("");
+  window.scrollTo({top:0}); muted=false; $("#muteBtn").textContent="소리 끄기";
+  if(withSound){siren(); vibrate(); setTimeout(()=>{if(pendingAlarm()) speak(ev.guide,2);},2300);}
+}
+function answer(a){
+  const ev=pendingAlarm(); if(!ev) return;
+  ev.answer=a; ev.answeredAt=new Date().toISOString();
+  /* 감지 1분 전부터 답한 순간까지의 기록에 "공황발작/공황 아님" 표시를 붙여 함께 쌓아요 */
+  const from=new Date(new Date(ev.t).getTime()-60000).toISOString(), to=ev.answeredAt;
+  for(const s of samples) if(s.t>=from&&s.t<=to) s.label=a;
+  try{speechSynthesis.cancel();}catch(e){}
+  document.body.classList.remove("alarming","alarm-flash");
+  cooldownUntil=Date.now()+60000;
+  if(auto.mode==="sim"){ demoEnd(); show.left=0; cooldownUntil=Date.now()+12000; }
+  persist(a==="panic"?"공황발작 데이터로 저장했어요":"공황이 아닌 데이터로 저장했어요");
+  go("now");
+}
+$("#ansYes").addEventListener("click",()=>answer("panic"));
+$("#ansNo").addEventListener("click",()=>answer("no"));
+$("#replayBtn").addEventListener("click",()=>{unlockAudio(); muted=false; $("#muteBtn").textContent="소리 끄기"; const ev=pendingAlarm(); if(ev) speak(ev.guide,1);});
+$("#muteBtn").addEventListener("click",()=>{muted=!muted; $("#muteBtn").textContent=muted?"소리 켜기":"소리 끄기"; if(muted){try{speechSynthesis.cancel();}catch(e){}}});
+document.addEventListener("pointerdown",()=>{unlockAudio();unlockSpeech();},{passive:true});
+document.addEventListener("keydown",unlockAudio);
+if("speechSynthesis" in window){try{speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged=()=>speechSynthesis.getVoices();}catch(e){}}
+
+/* ================= 시연용 가상 센서 ================= */
+const SC=(name,len,sp,bd)=>({name,len,sp:{voice:15,speed:0,...sp},bd});
+const B=(hr,hrv,gsr,breath,emg,tremor,temp,pupil)=>({hr,hrv,gsr,spo2:98,breath,emg,tremor,temp,pupil});
+const SCENES=[
+  SC("침실 (자기 전)",[60,90],{lux:5,noise:31,co2:950,pressure:1012.80,dist:160,move:0.04,tilt:85},B(64,55,1.9,4.8,12,0.03,33.0,5.6)),
+  SC("집 거실",[40,60],{lux:310,noise:40,co2:760,pressure:1012.80,dist:260,move:0.3,tilt:25},B(70,48,2.2,4.3,18,0.04,32.8,3.9)),
+  SC("집 책상 (작업 중)",[60,90],{lux:450,noise:36,co2:900,pressure:1012.80,dist:120,move:0.05,tilt:10},B(68,46,2.1,4.4,22,0.03,32.7,3.8)),
+  SC("실외 (걷는 중)",[20,40],{lux:9500,noise:62,speed:4.6,co2:430,pressure:1012.85,dist:400,move:3.2,tilt:5},B(96,32,3.3,3.3,40,0.3,32.0,2.8)),
+  SC("번화가 (사람 많음)",[40,60],{lux:7000,noise:75,voice:58,speed:2.5,co2:480,pressure:1012.85,dist:400,move:0.8,tilt:5},B(82,40,3.0,3.9,30,0.08,32.1,3.0)),
+  SC("넓은 광장 (한산함)",[30,50],{lux:9000,noise:55,voice:18,speed:2.2,co2:430,pressure:1012.85,dist:400,move:0.6,tilt:5},B(76,44,2.6,4.1,24,0.06,32.0,2.9)),
+  SC("지하철",[40,60],{lux:420,noise:77,voice:30,speed:42,co2:1480,pressure:1014.05,dist:115,move:0.6,tilt:5},B(81,40,2.9,4.0,28,0.06,32.4,4.2)),
+  SC("실외 (걷는 중)",[16,30],{lux:11000,noise:61,speed:4.8,co2:435,pressure:1012.85,dist:400,move:3.2,tilt:5},B(96,32,3.3,3.3,40,0.3,32.0,2.8)),
+  SC("건물 로비",[10,16],{lux:520,noise:50,speed:2,co2:640,pressure:1012.83,dist:320,move:1.6,tilt:5},B(80,42,2.8,3.9,28,0.15,32.4,3.6)),
+  SC("엘리베이터 (올라가는 중)",[10,10],{lux:260,noise:44,co2:1080,pressure:1007.40,dist:75,move:0.2,tilt:5},B(78,44,2.7,4.0,24,0.05,32.4,4.3)),
+  SC("사무실 (15층)",[40,60],{lux:460,noise:45,co2:890,pressure:1007.40,dist:340,move:0.2,tilt:10},B(72,46,2.3,4.4,22,0.04,32.6,3.7)),
+  SC("엘리베이터 (내려가는 중)",[10,10],{lux:260,noise:44,co2:1080,pressure:1012.83,dist:75,move:0.2,tilt:5},B(78,44,2.7,4.0,24,0.05,32.4,4.3)),
+  SC("버스",[30,50],{lux:650,noise:68,voice:28,speed:24,co2:1290,pressure:1012.80,dist:90,move:0.7,tilt:10},B(77,44,2.6,4.1,27,0.07,32.4,3.9))
+];
+const RATE={lux:.85,noise:.85,voice:.6,speed:.6,dist:.85,co2:.061,pressure:.19,move:.6,tilt:.6,hr:.16,hrv:.16,gsr:.074,spo2:.19,breath:.16,emg:.19,tremor:.3,temp:.03,pupil:.4};
+/* 공황 시연: 장면만 정해 주면, 공간은 사이트가 측정값으로 직접 판단해요. 몸 값에는 공황 반응을 더해요 */
+const PANIC=(hr,emg,breath)=>({hr,hrv:-19,gsr:1.6,spo2:1.6,breath,emg,tremor:0.22,temp:-1.8,pupil:1.3});
+const DEMO={
+  enclosed:{tab:"밀폐공간",scene:"지하철",off:PANIC(38,20,-1.6)},
+  crowd:{tab:"과밀도",scene:"번화가 (사람 많음)",off:PANIC(38,24,-1.5)},
+  shift:{tab:"급격한 전이",scene:"지하철 출구 (어둠→빛·소음)",off:PANIC(45,18,-1.6)},
+  focus:{tab:"초집중",scene:"집 책상 (작업 중)",off:PANIC(38,28,-1.7)},
+  bed:{tab:"이완",scene:"침실 (자기 전)",off:PANIC(38,16,-2.2)}
+};
+const EXTRA_SCENES=[SC("지하철 출구 (어둠→빛·소음)",[1,1],{lux:12000,noise:83,voice:32,speed:0,co2:520,pressure:1012.85,dist:400,move:0.4,tilt:5},B(80,42,2.8,4.0,26,0.07,32.1,3.0))];
+const sceneBy=n=>SCENES.find(x=>x.name===n)||EXTRA_SCENES.find(x=>x.name===n);
+const gauss=()=>{let u=0,v=0;while(!u)u=Math.random();v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);};
+const rnd=([a,b])=>a+Math.floor(Math.random()*(b-a+1));
+const sim={scene:1,left:0,tick:0,cur:null,demo:null};
+function simInit(){
+  const last=samples[samples.length-1], base={...SCENES[1].sp,...SCENES[1].bd};
+  sim.cur={}; for(const k of KEYS) sim.cur[k]=last&&val(last,k)!=null?val(last,k):base[k];
+  sim.scene=1; sim.left=rnd(SCENES[1].len); sim.tick=0;
+}
+function simStep(){
+  if(!sim.cur) simInit();
+  let tgt;
+  if(sim.demo){ const sc=sim.demo.sc; tgt={...sc.sp,...sc.bd}; for(const k in sim.demo.off) tgt[k]+=sim.demo.off[k]; }
+  else{
+    if(sim.left<=0){sim.scene=(sim.scene+1)%SCENES.length; sim.left=rnd(SCENES[sim.scene].len); sim.tick=0;}
+    const sc=SCENES[sim.scene]; tgt={...sc.sp,...sc.bd};
+    if(sim.tick<6){tgt.hr+=3-sim.tick*0.5; tgt.gsr+=0.15;}      /* 공간이 바뀐 직후 짧은 놀람 반응 */
+    sim.left--; sim.tick++;
+  }
+  for(const k of KEYS){ if(sim.cur[k]==null||!isFinite(sim.cur[k])) sim.cur[k]=tgt[k]; sim.cur[k]+=(tgt[k]-sim.cur[k])*RATE[k]; }
+  const c=sim.cur, r=(x,dp)=>+x.toFixed(dp);
+  return {
+    lux:Math.max(0,Math.round(c.lux*(1+gauss()*0.03))), noise:Math.round(c.noise+gauss()*2+(Math.random()<0.03?6+Math.random()*6:0)),
+    voice:Math.min(100,Math.max(0,Math.round(c.voice+gauss()*4))), speed:r(Math.max(0,c.speed*(1+gauss()*0.1)),1),
+    co2:Math.max(400,Math.round(c.co2+gauss()*12)), pressure:r(c.pressure+gauss()*0.02,2),
+    dist:Math.min(400,Math.max(2,Math.round(c.dist+gauss()*6-(Math.random()<0.03?40+Math.random()*50:0)))),
+    move:r(Math.max(0,c.move*(1+gauss()*0.15)),2), tilt:Math.min(180,Math.max(0,Math.round(c.tilt+gauss()*3))),
+    gsr:r(Math.max(0.3,c.gsr+gauss()*0.06),2), hr:Math.round(c.hr+gauss()*1.5), hrv:Math.max(5,Math.round(c.hrv+gauss()*3)),
+    spo2:Math.min(100,Math.round(c.spo2+gauss()*0.5)), breath:r(Math.max(1.5,c.breath+gauss()*0.2),1),
+    emg:Math.max(3,Math.round(c.emg+gauss()*2.5)), tremor:r(Math.max(0.01,c.tremor*(1+gauss()*0.2)),2),
+    temp:r(c.temp+gauss()*0.08,1), pupil:r(Math.max(1.5,c.pupil+gauss()*0.12),1)
+  };
+}
+/* 실제 측정: 지금 이 기기로 진짜 잴 수 있는 값만 기록해요 (나머지는 기기를 연결해야 들어와요) */
+function realSample(){
+  const v={}, pm=phoneMotionSample(), ms=micSample();
+  if(pm){v.move=pm.move; v.tilt=pm.tilt; v.tremor=pm.tremor;}
+  if(ms){v.noise=ms.noise; v.voice=ms.voice;}
+  if(gpsLive()){const ph=phoneState(); v.speed=ph&&ph.kmh!=null?+ph.kmh.toFixed(1):0;}
+  return v;
+}
+
+/* ================= 공간 / 몸 측정표 ================= */
+const SPACE_ROWS=[
+  ["enclosed","공기 답답함 (CO2)","CCS811","co2","co2"],
+  ["enclosed","막힘 정도","HC-SR04","dist","distNear"],
+  ["enclosed","기압 및 고도 변화","BMP280 / 스마트폰 기압 센서","pressure",null],
+  ["enclosed","이동 속도 및 위치","GPS (휴대폰)","speed",null],
+  ["crowd","소음 및 목소리 비율","MAX4466 / 스마트폰 마이크","noise","crowdNoise"],
+  ["crowd","막힘 정도","HC-SR04","dist","distOpen"],
+  ["crowd","거시적 인구 혼잡도","서울시 실시간 도시 데이터 API","cg",null],
+  ["shift","밝기 (조도)","BH1750 / 스마트폰 조도 센서","luxJump","luxJump"],
+  ["shift","소음 스파이크","MAX4466 / 스마트폰 마이크","noiseJump","noiseSpike"],
+  ["focus","움직임 (정적 자세 지속)","MPU-6050 / 가속도 센서","move","stillFocus"],
+  ["focus","체류 시간 및 시각","스마트폰 시계 및 GPS","stay",null],
+  ["bed","몸 기울기 (수평 자세)","MPU-6050 / 자이로 센서","tilt","tiltFlat"],
+  ["bed","밝기 (저조도)","BH1750 / 스마트폰 조도 센서","lux","luxLow"]
+];
+const GROUP_NAME={enclosed:"밀폐 공간",crowd:"과밀도 공간",shift:"급격한 전이 공간",focus:"초집중 상태",bed:"이완 상태"};
+const HERE={enclosed:"enclosed",crowd:"crowd",open:"crowd",shift:"shift",focus:"focus",bed:"bed"};
+const BODY_ROWS=[["식은땀","GSR 센서","gsr"],["심박수","MAX30102","hr"],["심박 간격 변화","MAX30102","hrv"],["혈중 산소","MAX30102","spo2"],
+  ["호흡 주기","스트레치 밴드","breath"],["근육 긴장도","EMG 센서","emg"],["미세 떨림","MPU-6050","tremor"],
+  ["말초 체온","MLX90614 (비접촉식 적외선 온도 센서)","temp"],["동공 크기","적외선 카메라 모듈","pupil"]];
+const CG_TXT={1:"여유",2:"보통",3:"약간 붐빔",4:"붐빔"};
+const nameCell=(n,d)=>`<td><span class="mt-name">${esc(n)}</span><span class="mt-dev">${esc(d)}</span></td>`;
+const NOVAL=`<span class="hint">기기 연결 필요</span>`;
+function cmpLine(x,lo,hi,dp,unit){
+  if(lo==null||x==null) return "";
+  if(x>hi) return `<span class="vs up">▲ 평소보다 +${fmt(x-hi,dp)} ${esc(unit)}</span>`;
+  if(x<lo) return `<span class="vs down">▼ 평소보다 −${fmt(lo-x,dp)} ${esc(unit)}</span>`;
+  return `<span class="vs flat">평소 범위 안</span>`;
+}
+const riskTag=t=>t?`<span class="risk">공황 위험 · ${esc(t)}</span>`:"";
+function stayNow(idx){
+  let i=idx; const p=samples[idx].place;
+  while(i>0&&samples[i-1].place===p&&new Date(samples[i].t)-new Date(samples[i-1].t)<=10000) i--;
+  return (new Date(samples[idx].t)-new Date(samples[i].t))/60000;
+}
+function renderMeasure(){
+  const idx=samples.length-1, s=samples[idx];
+  if(!s){
+    $("#mtBasis").textContent="아직 기록이 없어요. \"실제 측정 시작\"을 누르거나 공황 시연을 골라 주세요.";
+    let gp=null;
+    $("#mtSpace").innerHTML=SPACE_ROWS.map(([g,n,d])=>{const h=g!==gp?`<tr class="grp"><td colspan="3">${esc(GROUP_NAME[g])}</td></tr>`:""; gp=g; return h+`<tr>${nameCell(n,d)}<td>—</td><td>—</td></tr>`;}).join("");
+    $("#mtBody").innerHTML=BODY_ROWS.map(([n,d])=>`<tr>${nameCell(n,d)}<td>—</td><td>—</td></tr>`).join("");
+    return;
+  }
+  const R=riskAt(idx), U=R.U, here=HERE[s.place];
+  $("#mtBasis").textContent=U.scope==="place"
+    ?`평소 괜찮을 때 = 지금 공간("${SHORT[s.place]}")에서 공황발작이 아니었던 기록 ${U.n.toLocaleString("ko-KR")}개 기준 (공간은 가운데 80%, 몸은 평균 ± 2×표준편차)`
+    :`지금 공간("${SHORT[s.place]||"일반"}")의 기록이 아직 적어서 전체 기록 ${U.n.toLocaleString("ko-KR")}개로 평소 범위를 잡았어요`;
+  const num=(k)=>{const f=FIELDS[k], x=val(s,k), u=U.get(k);
+    return {usual:u?`<span class="v">${fmt(u.p10,f.dp)} ~ ${fmt(u.p90,f.dp)}</span> ${esc(f.unit)}`:`<span class="hint">기록 쌓는 중</span>`,
+            cur:x==null?NOVAL:`<span class="v">${fmt(x,f.dp)}</span> ${esc(f.unit)}${cmpLine(x,u&&u.p10,u&&u.p90,f.dp,f.unit)}`, x};};
+  const rows=[]; let gp=null;
+  for(const [g,n,d,k,rk] of SPACE_ROWS){
+    if(g!==gp){rows.push(`<tr class="grp${g===here?" here":""}"><td colspan="3">${esc(GROUP_NAME[g])}${g===here?" · 지금 여기":""}</td></tr>`); gp=g;}
+    let usual="", cur="";
+    if(k==="cg"){
+      const c=seoulNow();
+      usual=U.cgMode?`주로 "${CG_TXT[U.cgMode]}"`:`<span class="hint">기록 없음</span>`;
+      cur=c?`"${esc(c.label)}"<span class="vs" style="color:var(--muted)">${esc(c.name)} · ${c.ago}분 전</span>`:`<span class="hint">${!profile.seoulKey?"내 정보에 인증키 필요":!phone.on?"현재 위치를 켜면 조회":"근처에 서울시 등록 장소 없음"}</span>`;
+    }else if(k==="luxJump"||k==="noiseJump"){
+      const kk=k==="luxJump"?"lux":"noise", f=FIELDS[kk], x=val(s,kk), m=prevMean(kk,idx), j=U.jump(kk);
+      usual=j!=null?`3초 변화 ±<span class="v">${fmt(j,f.dp)}</span> ${esc(f.unit)} 이내`:`<span class="hint">기록 쌓는 중</span>`;
+      if(x==null) cur=NOVAL; else if(!m) cur=`<span class="v">${fmt(x,f.dp)}</span> ${esc(f.unit)}`;
+      else{const dd=x-m.mean; cur=`<span class="v">${dd>=0?"+":"−"}${fmt(Math.abs(dd),f.dp)}</span> ${esc(f.unit)}<span class="vs" style="color:var(--muted)">직전 1분 평균 대비 · 지금 ${fmt(x,f.dp)}</span>${j!=null&&Math.abs(dd)>j?`<span class="vs ${dd>0?"up":"down"}">${dd>0?"▲":"▼"} 평소 변화 폭보다 큼</span>`:""}`;}
+    }else if(k==="stay"){
+      const now=new Date(s.t), mins=stayNow(idx);
+      usual=U.stay!=null?`한 번에 약 <span class="v">${fmt(U.stay,0)}</span>분`:`<span class="hint">기록 쌓는 중</span>`;
+      cur=`<span class="v">${p2(now.getHours())}:${p2(now.getMinutes())}</span><span class="vs" style="color:var(--muted)">이 공간 ${fmt(mins,0)}분째</span>${U.stay!=null&&mins>U.stay?`<span class="vs up">▲ 평소보다 오래 머묾</span>`:""}`;
+    }else if(k==="noise"){
+      const a=num("noise"), b=num("voice");
+      usual=`${a.usual}<span class="vs" style="color:var(--muted)">목소리 ${U.get("voice")?`${fmt(U.get("voice").p10,0)} ~ ${fmt(U.get("voice").p90,0)}%`:"—"}</span>`;
+      cur=a.x==null?NOVAL:`${a.cur}<span class="vs" style="color:var(--muted)">목소리 ${b.x==null?"—":fmt(b.x,0)+"%"}</span>`;
+    }else{
+      const a=num(k); usual=a.usual; cur=a.cur;
+      if(k==="pressure"&&a.x!=null){const vs=vSpeedAt(idx); if(vs!=null&&Math.abs(vs)>=0.7) cur+=`<span class="vs up">${vs>0?"▲ 올라가는 중":"▼ 내려가는 중"} ${fmt(Math.abs(vs),1)}m/초</span>`;}
+      if(k==="speed"&&gpsLive()) cur+=`<span class="vs" style="color:var(--muted)">위치 ${phone.gps.lat.toFixed(5)}, ${phone.gps.lng.toFixed(5)}</span>`;
+    }
+    rows.push(`<tr>${nameCell(n,d)}<td>${usual}</td><td>${cur}${riskTag(rk&&R.S[rk])}</td></tr>`);
+  }
+  $("#mtSpace").innerHTML=rows.join("");
+  $("#mtBody").innerHTML=BODY_ROWS.map(([n,d,k])=>{
+    const f=FIELDS[k], x=val(s,k), u=U.get(k), lo=u&&u.sd!=null?Math.max(0,u.mean-2*u.sd):null, hi=u&&u.sd!=null?u.mean+2*u.sd:null;
+    const usual=u?`<span class="v">${fmt(lo,f.dp)} ~ ${fmt(hi,f.dp)}</span> ${esc(f.unit)}`:`<span class="hint">기록 쌓는 중</span>`;
+    let cur=x==null?NOVAL:`<span class="v">${fmt(x,f.dp)}</span> ${esc(f.unit)}${k==="breath"?`<span class="vs" style="color:var(--muted)">1분에 ${Math.round(60/x)}회</span>`:""}${cmpLine(x,lo,hi,f.dp,f.unit)}`;
+    return `<tr>${nameCell(n,d)}<td>${usual}</td><td>${cur}${riskTag(R.B[k])}</td></tr>`;
+  }).join("");
+}
+/* 맨 위 한 줄: 지금 공간 + 몸이 평상시 범위와 얼마나 다른지 */
+function renderHeadline(){
+  const el=$("#headline"), idx=samples.length-1, s=samples[idx];
+  if(!s){el.className="headline";el.innerHTML=`<span><span class="lbl">지금 공간</span><b>측정 전</b></span><span><span class="lbl">내 몸</span>"실제 측정 시작"을 누르면 여기에 한 줄로 정리돼요</span>`;return;}
+  const R=riskAt(idx), U=R.U, parts=[]; let any=false;
+  for(const [n,,k] of BODY_ROWS){
+    const f=FIELDS[k], x=val(s,k), u=U.get(k); if(x==null) continue; any=true; if(!u||u.sd==null) continue;
+    const lo=u.mean-2*u.sd, hi=u.mean+2*u.sd;
+    if(x>hi) parts.push(`<span class="up">${esc(n)} ▲ +${fmt(x-u.mean,f.dp)}</span>`);
+    else if(x<lo) parts.push(`<span class="down">${esc(n)} ▼ −${fmt(u.mean-x,f.dp)}</span>`);
+  }
+  const nS=Object.keys(R.S).length, nB=Object.keys(R.B).length, alert=(nS>=1&&nB>=1)||nB>=2;
+  el.className="headline"+(alert?" alert":"");
+  el.innerHTML=`<span><span class="lbl">지금 공간</span><b>${esc(SHORT[s.place]||"판단 대기")}</b></span>
+    <span><span class="lbl">내 몸 (평상시 범위 대비)</span>${!any?`<span class="hint">몸 센서 연결 필요</span>`:parts.length?parts.join(" · "):`<span class="flat">평상시 범위 안</span>`}</span>
+    ${nS||nB?`<span><span class="lbl">공황 위험 지표</span><b class="${alert?"up":""}">공간 ${nS}개 · 몸 ${nB}개</b></span>`:""}`;
+}
+
+/* ================= 공황 시연 (가상 값, 5초마다) =================
+   장면을 무작위로 바꾸고, 3번째 장면마다 무작위 장소에서 공황 반응을 넣어요.
+   공간과 몸 상태는 실제 측정처럼 사이트가 측정값으로 판단해요. */
+const DEMO_IV=5, PANIC_KEYS=Object.keys(DEMO);
+const show={left:0,count:0};
+function panicScene(key){
+  const d=DEMO[key], sc=sceneBy(d.scene); if(!sim.cur) simInit();
+  sim.demo={key,sc,off:d.off};
+  const base={...sc.sp,...sc.bd};
+  for(const k of BODY) sim.cur[k]=base[k]+(d.off[k]||0);        /* 몸 반응은 바로 나타나요 */
+  if(key==="shift"){const from={...sceneBy("지하철").sp,speed:0,co2:base.co2,dist:base.dist}; for(const k of SPACE) sim.cur[k]=from[k];}   /* 어두운 지하 통로 → 밝고 시끄러운 바깥 */
+  else for(const k of SPACE) sim.cur[k]=base[k];
+  place.vehicle=false; place.vehicleAt=null; place.shiftLeft=0; place.skipShift=key==="shift"?0:2;
+  if(key==="focus") place.stillSince=new Date(Date.now()-62*60000).toISOString();          /* 1시간 넘게 앉아 있었다고 가정 */
+  cooldownUntil=0;
+}
+function normalScene(){
+  if(sim.demo){ sim.demo=null; place.stillSince=null; place.vehicle=false; place.vehicleAt=null; place.shiftLeft=0; }
+  sim.scene=Math.floor(Math.random()*SCENES.length); sim.left=99; sim.tick=0;
+}
+function nextScene(){
+  show.count++;
+  if(show.count%3===0){ panicScene(PANIC_KEYS[Math.floor(Math.random()*PANIC_KEYS.length)]); show.left=6; }
+  else{ normalScene(); show.left=rnd([3,5]); }
+}
+function demoEnd(){               /* 공황 장면을 끝내고 다음 장면으로 */
+  if(!sim.demo) return;
+  sim.demo=null; const bd=SCENES[sim.scene].bd; for(const k of BODY) sim.cur[k]=bd[k];
+  place.stillSince=null; place.vehicle=false; place.vehicleAt=null; place.shiftLeft=0; place.skipShift=2;
+  show.left=0; cooldownUntil=Date.now()+12000; syncAutoUi();
+}
+function demoStartAll(){
+  unlockAudio(); unlockSpeech();
+  if(auto.mode==="real") stopRun();
+  if(!sim.cur) simInit();
+  show.count=0; show.left=0; auto.mode="sim"; startTimer(); tick(); syncAutoUi();
+  toast("공황 시연을 시작했어요. 5초마다 가상 값이 들어오고, 3번째 장면마다 공황 반응이 나타나요.");
+}
+function demoStopAll(){
+  if(sim.demo){sim.demo=null; const bd=SCENES[sim.scene].bd; for(const k of BODY) sim.cur[k]=bd[k]; place.stillSince=null;}
+  auto.mode="stop"; clearInterval(auto.timer); auto.timer=null; syncAutoUi(); toast("공황 시연을 멈췄어요");
+}
+$("#demoBtn").addEventListener("click",()=>auto.mode==="sim"?demoStopAll():demoStartAll());
+
+/* ================= 3초마다 자동 기록 ================= */
+const auto={mode:"stop",left:INTERVAL,timer:null};
+const iv=()=>auto.mode==="sim"?DEMO_IV:INTERVAL;
+function tick(){
+  if(auto.mode==="sim"){ if(pendingAlarm()) return;            /* 안내 창에 답할 때까지 시연을 잠깐 멈춰요 */
+    if(show.left<=0) nextScene(); show.left--; }
+  const v=auto.mode==="sim"?simStep():auto.mode==="real"?realSample():{};
+  if(!Object.keys(v).length) return;
+  addSample({t:new Date(Math.floor(Date.now()/1000)*1000).toISOString(),v});
+}
+function startTimer(){
+  clearInterval(auto.timer); auto.left=iv();
+  auto.timer=setInterval(()=>{ auto.left--; if(auto.left<=0){auto.left=iv(); tick();}
+    if(view==="now") syncAutoUi(); else if(view==="home") renderHome(); },1000);
+}
+function syncAutoUi(){
+  const m=auto.mode, st=$("#autoState"), btn=$("#runBtn");
+  btn.textContent=m==="real"?"실제 측정 멈춤":"실제 측정 시작"; btn.classList.toggle("on",m==="real");
+  if(m==="real"){
+    const src=[gpsLive()&&"GPS 속도",micLive()&&"소음·목소리",motionLive()&&"움직임·기울기·떨림"].filter(Boolean);
+    st.innerHTML=`<i class="dot run"></i>실제 측정 중<small>다음 측정까지 ${auto.left}초 · ${src.length?`지금 재는 것: ${src.join(", ")}`:"휴대폰 센서를 켜는 중…"} · 나머지는 기기 연결 필요</small>`;
+  }else if(m==="sim") st.innerHTML=`<i class="dot body"></i>공황 시연 중 (가상 값)<small>${show.count}번째 장면${sim.demo?" · 공황 반응 장면":` · ${3-show.count%3}장면 뒤 공황 반응`} · 다음 측정까지 ${auto.left}초</small>`;
+  else st.innerHTML=`<i class="dot"></i>측정 대기<small>"실제 측정 시작"은 휴대폰 GPS·마이크·움직임 센서로 3초마다 기록해요</small>`;
+  const db=$("#demoBtn"); db.textContent=m==="sim"?"공황 시연 멈춤":"공황 시연"; db.classList.toggle("on",m==="sim");
+}
+const syncForm=syncAutoUi;
+async function startRun(){
+  unlockAudio(); unlockSpeech();
+  if(sim.demo) demoEnd();
+  auto.mode="real"; startTimer(); syncAutoUi();
+  if(!phone.on) await phoneOn();
+  if(!mic.on) await micOn();
+  syncAutoUi();
+}
+function stopRun(){
+  auto.mode="stop"; clearInterval(auto.timer); auto.timer=null;
+  if(phone.on) phoneOff(); if(mic.on) micOff(); syncAutoUi();
+}
+$("#runBtn").addEventListener("click",()=>auto.mode==="real"?stopRun():startRun());
+$("#phoneBtn").addEventListener("click",()=>phone.on?phoneOff():phoneOn());
+$("#micBtn").addEventListener("click",()=>mic.on?micOff():micOn());
+
+/* ================= 백업 ================= */
+function download(name,content,type){
+  const url=URL.createObjectURL(new Blob([content],{type}));
+  const a=document.createElement("a");a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+const stamp=()=>{const d=new Date();return `${d.getFullYear()}${p2(d.getMonth()+1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}`;};
+$("#backupBtn").addEventListener("click",()=>{
+  if(!samples.length){toast("저장할 기록이 없어요.",true);return;}
+  download(`dontpanic_백업_${stamp()}.json`,JSON.stringify({app:"dontpanic",version:5,interval:INTERVAL,savedAt:new Date().toISOString(),profile:{age:profile.age||null,note:profile.note||null,home:profile.home||null},samples,events}),"application/json");
+  toast("백업 파일을 내려받았어요");
+});
+$("#restoreBtn").addEventListener("click",()=>$("#restoreFile").click());
+$("#restoreFile").addEventListener("change",e=>{
+  const f=e.target.files&&e.target.files[0]; e.target.value=""; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{
+    try{
+      const o=JSON.parse(rd.result), list=clean(o.samples||o);
+      if(!list.length){toast("이 파일에서 기록을 찾지 못했어요. 이 사이트에서 저장한 백업 파일인지 확인해 주세요.",true);return;}
+      const prev=samples, prevEv=events; samples=list; events=cleanEvents(o.events).filter(x=>x.answer);
+      if(o.profile&&o.profile.age){profile.age=o.profile.age;saveProfile();}
+      if(o.profile){profile.note=o.profile.note||null;saveProfile();}
+      if(o.profile&&o.profile.home&&!profile.home){profile.home=o.profile.home;saveProfile();}
+      if(sim.demo) demoEnd(true);
+      persist(""); simInit(); updatePlace(); renderAll(); syncForm(); resetTime();
+      toast(`백업에서 기록 ${list.length.toLocaleString("ko-KR")}개를 불러왔어요`,false,prev.length?{label:"되돌리기",fn:()=>{samples=prev;events=prevEv;persist("불러오기 전으로 되돌렸어요");updatePlace();renderAll();syncForm();}}:null);
+    }catch(err){toast("파일을 읽지 못했어요. 파일이 손상되었거나 형식이 달라요.",true);}
+  };
+  rd.readAsText(f);
+});
+$("#csvBtn").addEventListener("click",()=>{
+  if(!samples.length){toast("내보낼 기록이 없어요.",true);return;}
+  const LABEL={panic:"공황발작",no:"공황 아님"};
+  const head=["시각","장소","구분",...KEYS.map(k=>`${FIELDS[k].label}(${FIELDS[k].unit})`)];
+  const q=c=>/[",\n]/.test(String(c))?`"${String(c).replace(/"/g,'""')}"`:c;
+  const lines=[head.map(q).join(","),...samples.map(s=>[new Date(s.t).toLocaleString("ko-KR"),SHORT[s.place]||"",LABEL[s.label]||"",...KEYS.map(k=>{const x=val(s,k);return x==null?"":x;})].map(q).join(","))];
+  download(`dontpanic_기록_${stamp()}.csv`,"﻿"+lines.join("\n"),"text/csv;charset=utf-8");
+  toast("CSV 파일을 내려받았어요");
+});
+$("#clearBtn").addEventListener("click",()=>{
+  if(!samples.length&&!events.length){toast("지울 기록이 없어요.",true);return;}
+  const btn=$("#clearBtn");
+  if(!pendingClear){pendingClear=true;btn.textContent="정말 모두 삭제";btn.classList.add("danger");setTimeout(()=>{pendingClear=false;btn.textContent="전체 삭제";btn.classList.remove("danger");},4000);return;}
+  pendingClear=false; btn.textContent="전체 삭제"; btn.classList.remove("danger");
+  const prev=samples, prevEv=events; samples=[]; events=[]; save(); updatePlace(); renderAll(); syncForm(); resetTime();
+  toast(`기록 ${prev.length.toLocaleString("ko-KR")}개를 모두 지웠어요`,false,{label:"되돌리기",fn:()=>{samples=prev;events=prevEv;persist("삭제 전으로 되돌렸어요");updatePlace();renderAll();syncForm();}});
+});
+
+/* ================= 시작 ================= */
+load(); simInit(); updatePlace(); syncAutoUi();
+const pa=pendingAlarm(); if(pa) showAlarm(pa,false); else go("home");
+})();
+</script>
+</body>
+</html>
