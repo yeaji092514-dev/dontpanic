@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>공황 기준선 기록</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: an instrument log — situation selector strip, input form, then a per-situation baseline ledger. */
+:root{
+  --bg:#F3F6F7; --surface:#FFFFFF; --sunk:#E9EEF0; --ink:#13212A; --muted:#566871; --line:#D5DDE1;
+  --accent:#0D6A72; --accent-ink:#FFFFFF; --accent-soft:#DAECEE;
+  --ok:#2C7A4C; --ok-soft:#DCEFE3; --warn:#8F5600; --warn-soft:#F6E8D2; --danger:#B03636; --danger-soft:#F6DEDE;
+  --s-enclosed:#4659AD; --s-walking:#A8700C; --s-trauma:#A3436A; --s-bed:#5A4E9E;
+  --f-body:"IBM Plex Sans KR",-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+  --r:10px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E161B; --surface:#152128; --sunk:#1B2A32; --ink:#E2EBEE; --muted:#93A5AE; --line:#26363F;
+  --accent:#5DBDC5; --accent-ink:#06282B; --accent-soft:#163A3E;
+  --ok:#6EC290; --ok-soft:#173528; --warn:#E3AA4E; --warn-soft:#3A2C14; --danger:#E58080; --danger-soft:#3D1D1D;
+  --s-enclosed:#8E9EEA; --s-walking:#E2B256; --s-trauma:#E48DB1; --s-bed:#A99EE6;
+  color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0E161B; --surface:#152128; --sunk:#1B2A32; --ink:#E2EBEE; --muted:#93A5AE; --line:#26363F;
+  --accent:#5DBDC5; --accent-ink:#06282B; --accent-soft:#163A3E;
+  --ok:#6EC290; --ok-soft:#173528; --warn:#E3AA4E; --warn-soft:#3A2C14; --danger:#E58080; --danger-soft:#3D1D1D;
+  --s-enclosed:#8E9EEA; --s-walking:#E2B256; --s-trauma:#E48DB1; --s-bed:#A99EE6;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{color-scheme:light}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.55;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 56px}
+.wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:36px}
+h1,h2,h3{margin:0;text-wrap:balance;line-height:1.25}
+p{margin:0}
+.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+
+/* header */
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px 24px}
+.title{display:flex;flex-direction:column;gap:6px;min-width:0}
+h1{font-size:clamp(24px,4vw,32px);font-weight:700;letter-spacing:-.01em}
+.lede{color:var(--muted);max-width:62ch}
+.trace{display:block;width:180px;max-width:100%;height:34px;color:var(--accent)}
+.status{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;padding:4px 10px;border-radius:999px;background:var(--sunk);color:var(--muted);white-space:nowrap}
+.chip .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.chip.ok{background:var(--ok-soft);color:var(--ok)}
+.chip.warn{background:var(--warn-soft);color:var(--warn)}
+
+section{display:flex;flex-direction:column;gap:16px}
+.sec-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.step{font-family:var(--f-mono);font-size:13px;color:var(--accent);font-weight:500}
+h2{font-size:20px;font-weight:700}
+.sec-head .hint{color:var(--muted);font-size:13.5px}
+
+/* situation picker */
+.sits{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+@media (max-width:860px){.sits{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:440px){.sits{grid-template-columns:1fr}}
+.sit{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:var(--r);
+  background:var(--surface);border:1.5px solid var(--line);min-width:0;transition:border-color .15s,box-shadow .15s}
+.sit:hover{border-color:color-mix(in srgb,var(--c) 55%,var(--line))}
+.sit:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.sit[aria-pressed="true"]{border-color:var(--c);box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 18%,transparent)}
+.sit-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sit-name{font-weight:700;font-size:16px;display:flex;align-items:center;gap:8px}
+.sit-name::before{content:"";width:9px;height:9px;border-radius:2px;background:var(--c);flex:none}
+.sit-desc{color:var(--muted);font-size:13px}
+.sit-count{font-family:var(--f-mono);font-size:13px;color:var(--muted)}
+.sit-count b{color:var(--ink);font-weight:500}
+.bar{height:6px;border-radius:3px;background:var(--sunk);overflow:hidden}
+.bar>i{display:block;height:100%;background:var(--c);border-radius:3px;transition:width .3s}
+.sensors{display:flex;flex-wrap:wrap;gap:4px}
+.sensors span{font-size:11.5px;padding:1px 7px;border-radius:4px;background:var(--sunk);color:var(--muted)}
+
+/* form */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:20px;display:flex;flex-direction:column;gap:18px}
+.panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.panel-head h3{font-size:17px;display:flex;align-items:center;gap:8px}
+.panel-head h3::before{content:"";width:9px;height:9px;border-radius:2px;background:var(--c)}
+.tip{font-size:13.5px;color:var(--muted);max-width:60ch}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px}
+.field{display:flex;flex-direction:column;gap:5px;min-width:0}
+.field label{font-size:13.5px;font-weight:600;display:flex;justify-content:space-between;gap:6px}
+.field label small{font-weight:400;color:var(--muted);font-size:12px}
+.inwrap{position:relative;display:flex;align-items:center}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 11px;width:100%;min-width:0}
+input[type=number]{font-family:var(--f-mono);font-variant-numeric:tabular-nums;padding-right:62px}
+.unit{position:absolute;right:10px;font-size:12px;color:var(--muted);pointer-events:none;font-family:var(--f-mono)}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:0;border-color:transparent}
+input[aria-invalid="true"]{border-color:var(--danger);background:var(--danger-soft)}
+.err{font-size:12px;color:var(--danger);min-height:0}
+textarea{resize:vertical;min-height:44px}
+.row{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end}
+.row>.field{flex:1 1 220px}
+.check{display:flex;gap:9px;align-items:flex-start;font-size:13.5px;cursor:pointer}
+.check input{width:auto;margin-top:3px;accent-color:var(--accent)}
+.check span small{display:block;color:var(--muted);font-size:12.5px}
+.actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.btn{font:inherit;font-weight:600;border-radius:8px;padding:10px 18px;border:1px solid transparent;cursor:pointer;background:var(--accent);color:var(--accent-ink)}
+.btn:hover{filter:brightness(1.06)}
+.btn:disabled{background:var(--sunk);color:var(--muted);cursor:not-allowed;filter:none}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--line);font-weight:500}
+.btn.small{padding:5px 10px;font-size:12.5px}
+.btn.danger{background:var(--danger-soft);color:var(--danger)}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.toast{font-size:13.5px;color:var(--ok)}
+.toast.bad{color:var(--danger)}
+.done{padding:14px 16px;border-radius:8px;background:var(--ok-soft);color:var(--ok);font-size:14px}
+
+/* history */
+details.hist{border-top:1px solid var(--line);padding-top:14px}
+details.hist summary{cursor:pointer;font-weight:600;font-size:14px;color:var(--muted)}
+.tbl-wrap{overflow-x:auto;margin-top:12px}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:12px;font-weight:600;color:var(--muted);background:var(--sunk)}
+td.n,th.n{text-align:right;font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+tr.excl td{color:var(--muted);text-decoration:line-through}
+tr.excl td.keep{text-decoration:none}
+
+/* summary */
+.sum-top{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.sum-list{display:flex;flex-direction:column;gap:16px}
+.sum{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--c);border-radius:var(--r);padding:16px 18px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.sum-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px 16px}
+.sum-head h3{font-size:16px}
+.sum-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.sum-meta .bar{width:120px}
+.pill{font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;white-space:nowrap}
+.pill.collect{background:var(--sunk);color:var(--muted)}
+.pill.check{background:var(--warn-soft);color:var(--warn)}
+.pill.stable{background:var(--ok-soft);color:var(--ok)}
+.pill.example{background:var(--accent-soft);color:var(--accent)}
+.empty{color:var(--muted);font-size:14px;padding:6px 0}
+td .range{color:var(--accent);font-weight:500}
+.note{font-size:12.5px;color:var(--muted)}
+.banner{padding:10px 14px;border-radius:8px;background:var(--accent-soft);color:var(--accent);font-size:13.5px}
+/* enclosed sub choices */
+.sit-group{cursor:default}
+.subs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.sub{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 4px;border-radius:8px;border:1.5px solid var(--line);background:var(--bg);font-size:13px;font-weight:600;text-align:center}
+.sub small{font-family:var(--f-mono);font-weight:400;color:var(--muted);font-size:11.5px}
+.sub:hover{border-color:color-mix(in srgb,var(--c) 55%,var(--line))}
+.sub:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.sub[aria-pressed="true"]{border-color:var(--c);background:color-mix(in srgb,var(--c) 12%,var(--surface))}
+/* easy summary */
+.explain{display:flex;flex-wrap:wrap;gap:8px 20px;padding:14px 16px;border-radius:var(--r);background:var(--surface);border:1px solid var(--line);font-size:14px}
+.explain b{color:var(--accent)}
+.group{display:flex;flex-direction:column;gap:12px}
+.group-title{font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px;color:var(--ink)}
+.group-title::before{content:"";width:10px;height:10px;border-radius:3px;background:var(--c)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--c);border-radius:var(--r);padding:16px 18px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.card-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.card-head h3{font-size:17px}
+.card-state{font-size:12.5px;color:var(--muted)}
+.card-state.ok{color:var(--ok);font-weight:600}
+.metrics{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.metric{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+.metric:first-child{border-top:0;padding-top:2px}
+.m-name{display:flex;flex-direction:column;gap:1px;min-width:0}
+.m-name b{font-size:14.5px}
+.m-name span{font-size:12.5px;color:var(--muted)}
+.m-val{text-align:right;white-space:nowrap}
+.m-val strong{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:19px;font-weight:500;color:var(--ink)}
+.m-val em{display:block;font-style:normal;font-size:12px;color:var(--muted)}
+.m-val.wait strong{font-size:13px;font-family:var(--f-body);color:var(--muted)}
+.env-label{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.04em;padding-top:12px;border-top:1px dashed var(--line)}
+footer{color:var(--muted);font-size:12.5px;border-top:1px solid var(--line);padding-top:16px;display:flex;flex-direction:column;gap:4px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="title">
+      <svg class="trace" viewBox="0 0 180 34" aria-hidden="true"><path d="M0 20 H52 l6 -4 l5 4 H78 l4 6 l6 -24 l6 30 l5 -12 H118 l7 -5 l7 5 H180" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>
+      <h1>공황 기준선 기록</h1>
+      <p class="lede">네 가지 상황에서 평소 센서 값을 상황마다 20회까지 기록하면, 상황별로 내 몸이 평소에 어느 정도인지 한눈에 정리돼요. 밀폐된 공간은 엘리베이터, 지하철, 버스로 나눠 기록합니다.</p>
+    </div>
+    <div class="status">
+      <span class="chip warn" id="storeChip"><span class="dot"></span><span id="storeText">이 브라우저에 저장</span></span>
+      <button class="btn ghost small" id="exportBtn" type="button">CSV 내보내기</button>
+      <button class="btn ghost small" id="backupBtn" type="button">백업 저장</button>
+      <button class="btn ghost small" id="restoreBtn" type="button">백업 불러오기</button>
+      <input type="file" id="restoreFile" accept=".json,application/json" hidden>
+    </div>
+  </header>
+
+  <section aria-labelledby="h-pick">
+    <div class="sec-head"><span class="step">1</span><h2 id="h-pick">상황 선택</h2><span class="hint">지금 측정한 상황을 고르세요</span></div>
+    <div class="sits" id="sits" role="group" aria-label="상황"></div>
+  </section>
+
+  <section aria-labelledby="h-input">
+    <div class="sec-head"><span class="step">2</span><h2 id="h-input">측정값 입력</h2><span class="hint">센서에 표시된 평균값을 입력하세요</span></div>
+    <div class="panel" id="panel"></div>
+    <span class="toast" id="toast" role="status" aria-live="polite"></span>
+  </section>
+
+  <section aria-labelledby="h-sum">
+    <div class="sum-top">
+      <div class="sec-head"><span class="step">3</span><h2 id="h-sum">나의 평상시 범위</h2><span class="hint">상황마다 내 몸이 평소에 어느 정도인지 보여줘요</span></div>
+      <button class="btn ghost small" id="demoBtn" type="button" aria-pressed="false">예시로 보기</button>
+    </div>
+    <div class="explain"><span>숫자가 <b>이 범위 안</b>에 있으면 평소와 같은 상태예요.</span><span>범위를 <b>크게 벗어나면</b> 평소와 다른 상태라는 뜻이에요.</span></div>
+    <div class="banner" id="demoBanner" hidden>예시 데이터로 만든 표입니다. 실제 기록이 아니며 저장되지 않습니다.</div>
+    <div class="sum-list" id="sumList"></div>
+    <p class="note">평상시 범위는 지금까지 기록의 대부분(약 95%)이 들어가는 구간이에요. 기록이 많을수록 더 정확해지고, "제외"로 표시한 기록은 계산에서 빠져요.</p>
+  </section>
+
+  <footer>
+    <p>기록용 도구이며 의료기기가 아닙니다. 공황 진단이나 치료 판단은 의료진과 상의하세요.</p>
+    <p id="storeNote">기록은 이 브라우저에만 저장됩니다. 브라우저 데이터를 지우거나 다른 기기에서 열면 기록이 보이지 않으니, 주기적으로 "백업 저장"을 해 두세요. 다른 기기에서는 "백업 불러오기"로 이어서 기록할 수 있습니다.</p>
+  </footer>
+</div>
+
+<script>
+(function(){
+"use strict";
+const MAX=20;
+const ENC_TIP="공간에 들어가 1~2분 지난 뒤의 평균값을 기록하세요. 주변 온도·습도·CO2는 답답해서 생긴 변화를 걸러내는 데 씁니다.";
+const ENC_FIELDS=["hr","rmssd","gsr","resp","envTemp","humidity","co2"];
+const SITS=[
+  {key:"elevator",group:"enclosed",name:"엘리베이터",full:"밀폐된 공간 · 엘리베이터",color:"enclosed",fields:ENC_FIELDS,ctx:null,tip:ENC_TIP},
+  {key:"subway",group:"enclosed",name:"지하철",full:"밀폐된 공간 · 지하철",color:"enclosed",fields:ENC_FIELDS,ctx:null,tip:ENC_TIP},
+  {key:"bus",group:"enclosed",name:"버스",full:"밀폐된 공간 · 버스",color:"enclosed",fields:ENC_FIELDS,ctx:null,tip:ENC_TIP},
+  {key:"walking",group:"walking",name:"길을 걷는 도중",full:"길을 걷는 도중",color:"walking",desc:"평소처럼 10분 이상 걷는 중",
+   fields:["hr","gsr","speed","cadence"],ctx:null,
+   tip:"천천히, 보통, 빠르게 걸은 기록이 골고루 섞여 있으면 걸음 속도별 기준을 만들기 좋습니다."},
+  {key:"trauma",group:"trauma",name:"트라우마 공간·순간",full:"트라우마 공간·순간",color:"trauma",desc:"등록한 장소 근처에서 괜찮았을 때",
+   fields:["hr","rmssd","gsr","resp"],
+   ctx:{type:"text",label:"장소 이름",placeholder:"예: 등록해 둔 장소 이름"},
+   tip:"일부러 찾아갈 필요는 없습니다. 평소 동선에서 자연스럽게 지나칠 때만 기록하세요."},
+  {key:"bed",group:"bed",name:"자기 전 침대 위",full:"자기 전 침대 위",color:"bed",desc:"누운 뒤 30분 동안의 평균",
+   fields:["hr","rmssd","gsr","resp","skinTemp"],ctx:null,
+   tip:"누운 직후 값이 아니라 30분 동안의 평균을 기록하세요."}
+];
+const GROUPS=[
+  {key:"enclosed",name:"밀폐된 공간",desc:"갇힌 공간 종류를 고르세요",color:"enclosed"},
+  {key:"walking",name:"길을 걷는 도중",color:"walking"},
+  {key:"trauma",name:"트라우마 공간·순간",color:"trauma"},
+  {key:"bed",name:"자기 전 침대 위",color:"bed"}
+];
+const ENV=["envTemp","humidity","co2"];
+const F={
+  hr:{label:"심박수",easy:"심박수",hint:"1분 동안 심장이 뛰는 횟수",unit:"bpm",easyUnit:"회/분",sensor:"Polar H10",min:30,max:220,dp:0,ph:"72"},
+  rmssd:{label:"HRV (RMSSD)",easy:"심장 박동의 여유 (HRV)",hint:"높을수록 몸이 편안한 상태",unit:"ms",easyUnit:"ms (밀리초)",sensor:"Polar H10",min:1,max:300,dp:1,easyDp:0,ph:"42"},
+  gsr:{label:"피부전도도",easy:"땀 반응",hint:"긴장해서 땀이 나면 숫자가 올라가요",unit:"µS",easyUnit:"µS (마이크로지멘스)",sensor:"GSR",min:0,max:100,dp:2,easyDp:1,ph:"3.2"},
+  resp:{label:"호흡수",easy:"호흡수",hint:"1분 동안 숨 쉬는 횟수",unit:"회/분",easyUnit:"회/분",sensor:"Polar H10",min:4,max:60,dp:1,easyDp:0,ph:"14"},
+  envTemp:{label:"주변 온도",easy:"주변 온도",hint:"그 공간의 기온",unit:"°C",easyUnit:"°C",sensor:"BME280",min:-10,max:50,dp:1,easyDp:0,ph:"24.5"},
+  humidity:{label:"주변 습도",easy:"주변 습도",hint:"공기 중 습기 정도",unit:"%",easyUnit:"%",sensor:"BME280",min:0,max:100,dp:0,ph:"45"},
+  co2:{label:"주변 CO2",easy:"공기 답답함 (CO2)",hint:"사람이 많고 환기가 안 될수록 올라가요",unit:"ppm",easyUnit:"ppm",sensor:"SCD41",min:300,max:5000,dp:0,ph:"800"},
+  speed:{label:"걸음 속도",easy:"걷는 속도",hint:"1시간 동안 걸을 수 있는 거리",unit:"km/h",easyUnit:"km/h",sensor:"GPS",min:0,max:15,dp:1,ph:"4.5"},
+  cadence:{label:"보행 리듬",easy:"걸음 수",hint:"1분 동안 걷는 걸음 수",unit:"걸음/분",easyUnit:"걸음/분",sensor:"Polar H10",min:0,max:220,dp:0,ph:"105"},
+  skinTemp:{label:"손끝 피부온도",easy:"손끝 온도",hint:"편안할수록 손끝이 따뜻해져요",unit:"°C",easyUnit:"°C",sensor:"DS18B20",min:15,max:42,dp:1,ph:"32.4"}
+};
+const LS="panic-baseline-v1";
+const data={elevator:[],subway:[],bus:[],walking:[],trauma:[],bed:[]};
+const ENC_MAP={"엘리베이터":"elevator","지하철":"subway","버스":"bus","차량·버스":"bus","차량":"bus"};
+/* 예전 형식(밀폐된 공간 하나로 묶인 기록)을 엘리베이터·지하철·버스로 나눠 읽기 */
+function normalize(src){
+  const out={}; for(const s of SITS) out[s.key]=Array.isArray(src&&src[s.key])?src[s.key].slice():[];
+  let skipped=0;
+  if(src&&Array.isArray(src.enclosed)) for(const r of src.enclosed){
+    const k=ENC_MAP[(r&&r.ctx)||""]; if(k){const c={...r}; delete c.ctx; out[k].push(c);} else skipped++;
+  }
+  return {out,skipped};
+}
+
+let current="elevator", demo=false, toastTimer=null;
+const pendingDelete={};
+
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const sitBy=k=>SITS.find(s=>s.key===k);
+const fmt=(v,dp)=>v==null||!isFinite(v)?"—":Number(v).toLocaleString("ko-KR",{minimumFractionDigits:dp,maximumFractionDigits:dp});
+const nowLocal=()=>{const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,16);};
+const fmtDate=iso=>{const d=new Date(iso);if(isNaN(d))return "—";const p=n=>String(n).padStart(2,"0");return `${d.getFullYear()}.${p(d.getMonth()+1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;};
+const sorted=k=>[...data[k]].sort((a,b)=>String(a.at).localeCompare(String(b.at)));
+
+/* ---------- stats ---------- */
+function stats(arr){
+  const n=arr.length; if(!n) return null;
+  const mean=arr.reduce((a,b)=>a+b,0)/n;
+  const sd=n>1?Math.sqrt(arr.reduce((a,b)=>a+(b-mean)**2,0)/(n-1)):null;
+  return {n,mean,sd,min:Math.min(...arr),max:Math.max(...arr)};
+}
+function stability(list,fields){
+  const valid=list.filter(s=>!s.excluded);
+  const n=valid.length;
+  if(n<10) return {state:"collect",n};
+  let worst=0;
+  for(const f of fields){
+    const all=valid.map(s=>s.v&&s.v[f]).filter(x=>typeof x==="number"&&isFinite(x));
+    if(all.length<10) return {state:"check",n,worst:null};
+    const a=stats(all), p=stats(all.slice(0,-5));
+    const dm=p.mean!==0?Math.abs(a.mean-p.mean)/Math.abs(p.mean):0;
+    const ds=p.sd?Math.abs(a.sd-p.sd)/p.sd:0;
+    worst=Math.max(worst,dm,ds);
+  }
+  return {state:worst<0.05?"stable":"check",n,worst};
+}
+
+/* ---------- storage (browser only) ---------- */
+function loadLocal(){
+  try{const raw=localStorage.getItem(LS); if(!raw) return;
+    const {out}=normalize(JSON.parse(raw)); for(const s of SITS) data[s.key]=out[s.key].slice(0,MAX);
+  }catch(e){}
+}
+function saveLocal(){try{localStorage.setItem(LS,JSON.stringify(data));return true;}catch(e){return false;}}
+function persist(){
+  saveLocal()?toast("저장했습니다"):toast("브라우저 저장소가 막혀 있어 저장하지 못했어요. 시크릿 모드라면 일반 창에서 열어 주세요.",true);
+}
+function toast(msg,bad){
+  const t=$("#toast"); if(!t) return;
+  t.textContent=msg; t.className="toast"+(bad?" bad":"");
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>{t.textContent="";},4000);
+}
+
+/* ---------- render: picker ---------- */
+function renderPicker(){
+  const el=$("#sits");
+  el.innerHTML=GROUPS.map(g=>{
+    const members=SITS.filter(s=>s.group===g.key);
+    const sensors=[...new Set(members[0].fields.map(f=>F[f].sensor))];
+    const chips=`<div class="sensors">${sensors.map(x=>`<span>${esc(x)}</span>`).join("")}</div>`;
+    if(members.length>1){
+      const total=members.reduce((a,s)=>a+data[s.key].length,0), cap=MAX*members.length;
+      const on=members.some(s=>s.key===current);
+      return `<div class="sit sit-group" role="group" aria-label="${esc(g.name)}" style="--c:var(--s-${g.color})" ${on?'aria-pressed="true"':''}>
+        <div class="sit-top"><span class="sit-name">${esc(g.name)}</span><span class="sit-count"><b>${total}</b>/${cap}</span></div>
+        <span class="sit-desc">${esc(g.desc)}</span>
+        <div class="subs">${members.map(s=>`<button type="button" class="sub" data-k="${s.key}" aria-pressed="${s.key===current}">${esc(s.name)}<small>${data[s.key].length}/${MAX}</small></button>`).join("")}</div>
+        ${chips}</div>`;
+    }
+    const s=members[0], n=data[s.key].length;
+    return `<button type="button" class="sit" style="--c:var(--s-${s.color})" data-k="${s.key}" aria-pressed="${s.key===current}">
+      <div class="sit-top"><span class="sit-name">${esc(s.name)}</span><span class="sit-count"><b>${n}</b>/${MAX}</span></div>
+      <span class="sit-desc">${esc(s.desc)}</span>
+      <div class="bar" aria-hidden="true"><i style="width:${Math.min(100,n/MAX*100)}%"></i></div>
+      ${chips}</button>`;}).join("");
+}
+
+/* ---------- render: form ---------- */
+function renderPanel(){
+  const s=sitBy(current), list=data[current], n=list.length, full=n>=MAX;
+  const p=$("#panel"); p.style.setProperty("--c",`var(--s-${s.color})`);
+  const ctx=s.ctx?(s.ctx.type==="select"
+    ?`<div class="field"><label for="f-ctx">${esc(s.ctx.label)}</label><select id="f-ctx">${s.ctx.options.map(o=>`<option>${esc(o)}</option>`).join("")}</select></div>`
+    :`<div class="field"><label for="f-ctx">${esc(s.ctx.label)} <small>선택</small></label><input id="f-ctx" type="text" maxlength="40" placeholder="${esc(s.ctx.placeholder)}"></div>`):"";
+  const ready=true;
+  p.innerHTML=`
+    <div class="panel-head">
+      <div style="display:flex;flex-direction:column;gap:4px;min-width:0"><h3>${esc(s.full)}</h3><p class="tip">${esc(s.tip)}</p></div>
+      <span class="chip num">${n}/${MAX}회 기록</span>
+    </div>
+    ${full?`<div class="done">이 상황은 ${MAX}회를 모두 기록했습니다. 아래 기준표에서 평상시 범위를 확인하세요. 기록을 지우면 다시 입력할 수 있습니다.</div>`:`
+    <form id="form" novalidate>
+      <div style="display:flex;flex-direction:column;gap:18px">
+        <div class="row">
+          <div class="field"><label for="f-at">측정 일시</label><input id="f-at" type="datetime-local" value="${nowLocal()}" required></div>
+          ${ctx}
+        </div>
+        <div class="grid">
+          ${s.fields.map(f=>{const d=F[f];return `<div class="field">
+            <label for="f-${f}">${esc(d.label)} <small>${esc(d.sensor)}</small></label>
+            <div class="inwrap"><input id="f-${f}" type="number" inputmode="decimal" step="any" min="${d.min}" max="${d.max}" placeholder="${d.ph}" required aria-describedby="e-${f}"><span class="unit">${esc(d.unit)}</span></div>
+            <span class="err" id="e-${f}"></span></div>`;}).join("")}
+        </div>
+        <div class="field"><label for="f-note">메모 <small>선택</small></label><textarea id="f-note" maxlength="200" placeholder="예: 점심 후, 컨디션 보통"></textarea></div>
+        <label class="check"><input type="checkbox" id="f-excl"><span>기준선 계산에서 제외<small>카페인·술·운동 직후, 감기·발열, 불안했던 때, 센서가 자주 끊긴 기록</small></span></label>
+        <div class="actions" style="justify-content:flex-end">
+          <button class="btn" type="submit" id="saveBtn" ${ready?"":"disabled"}>${ready?`기록 저장 (${n+1}/${MAX})`:"저장소 연결 중"}</button>
+        </div>
+      </div>
+    </form>`}
+    ${renderHistory(s)}`;
+  const form=$("#form"); if(form) form.addEventListener("submit",onSubmit);
+}
+function renderHistory(s){
+  const list=sorted(s.key).reverse();
+  if(!list.length) return `<details class="hist"><summary>기록 목록 (0)</summary><p class="empty" style="margin-top:10px">아직 기록이 없습니다. 위에 첫 측정값을 입력해 보세요.</p></details>`;
+  return `<details class="hist" ${list.length?"open":""}><summary>기록 목록 (${list.length})</summary>
+    <div class="tbl-wrap"><table><thead><tr><th>일시</th>${s.ctx?`<th>${esc(s.ctx.label)}</th>`:""}${s.fields.map(f=>`<th class="n">${esc(F[f].label)}<br>${esc(F[f].unit)}</th>`).join("")}<th>메모</th><th>관리</th></tr></thead>
+    <tbody>${list.map(r=>`<tr class="${r.excluded?"excl":""}">
+      <td class="num">${fmtDate(r.at)}</td>${s.ctx?`<td>${esc(r.ctx||"—")}</td>`:""}
+      ${s.fields.map(f=>`<td class="n">${fmt(r.v&&r.v[f],F[f].dp)}</td>`).join("")}
+      <td>${esc(r.note||"")}</td>
+      <td class="keep"><div style="display:flex;gap:6px">
+        <button class="btn ghost small" type="button" data-act="excl" data-id="${esc(r.id)}">${r.excluded?"포함":"제외"}</button>
+        <button class="btn small ${pendingDelete[r.id]?"danger":"ghost"}" type="button" data-act="del" data-id="${esc(r.id)}">${pendingDelete[r.id]?"삭제 확인":"삭제"}</button>
+      </div></td></tr>`).join("")}</tbody></table></div></details>`;
+}
+
+function onSubmit(e){
+  e.preventDefault();
+  const s=sitBy(current);
+  if(data[current].length>=MAX) return;
+  let ok=true; const v={};
+  for(const f of s.fields){
+    const inp=$("#f-"+f), er=$("#e-"+f), d=F[f], raw=inp.value.trim(), num=Number(raw);
+    let msg="";
+    if(raw==="") msg="값을 입력하세요";
+    else if(!isFinite(num)) msg="숫자로 입력하세요";
+    else if(num<d.min||num>d.max) msg=`${d.min}~${d.max} ${d.unit} 사이로 입력하세요`;
+    er.textContent=msg; inp.setAttribute("aria-invalid",msg?"true":"false");
+    if(msg){ if(ok) inp.focus(); ok=false; } else v[f]=num;
+  }
+  const atRaw=$("#f-at").value; const at=atRaw?new Date(atRaw):new Date();
+  if(!ok) return;
+  const rec={id:"s"+Date.now().toString(36)+Math.random().toString(36).slice(2,6),at:(isNaN(at)?new Date():at).toISOString(),v,
+    note:($("#f-note").value||"").trim(),excluded:$("#f-excl").checked};
+  const c=$("#f-ctx"); if(c) rec.ctx=(c.value||"").trim();
+  data[current]=[...data[current],rec];
+  renderAll(); persist(current);
+}
+function onHistoryClick(e){
+  const b=e.target.closest("button[data-act]"); if(!b) return;
+  const id=b.dataset.id, k=current;
+  if(b.dataset.act==="excl"){
+    data[k]=data[k].map(r=>r.id===id?{...r,excluded:!r.excluded}:r); renderAll(); persist(k);
+  }else if(b.dataset.act==="del"){
+    if(!pendingDelete[id]){ pendingDelete[id]=true; renderPanel(); setTimeout(()=>{if(pendingDelete[id]){delete pendingDelete[id];renderPanel();}},4000); return; }
+    delete pendingDelete[id]; data[k]=data[k].filter(r=>r.id!==id); renderAll(); persist(k);
+  }
+}
+
+/* ---------- render: summary ---------- */
+function exampleData(){
+  let seed=7; const rnd=()=>{seed=(seed*16807)%2147483647;return (seed-1)/2147483646;};
+  const g=(m,s)=>{let u=0,v=0;while(!u)u=rnd();v=rnd();return m+s*Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);};
+  const enc=(hr,co2)=>({hr:[hr,4],rmssd:[37,5],gsr:[3.3,.45],resp:[14.5,1.1],envTemp:[24.5,1.4],humidity:[49,6],co2:[co2,170]});
+  const base={elevator:enc(77,1050),subway:enc(80,1350),bus:enc(78,1150),
+    walking:{hr:[102,5],gsr:[4.4,.5],speed:[4.8,.5],cadence:[110,5]},
+    trauma:{hr:[81,4.5],rmssd:[34,5],gsr:[3.8,.55],resp:[15.2,1.2]},
+    bed:{hr:[62,3.5],rmssd:[52,6],gsr:[1.8,.3],resp:[12.6,.9],skinTemp:[33,.6]}};
+  const counts={elevator:20,subway:16,bus:9,walking:20,trauma:7,bed:20}; const out={};
+  for(const s of SITS){ out[s.key]=[];
+    for(let i=0;i<counts[s.key];i++){const v={};for(const f of s.fields){const [m,sd]=base[s.key][f];v[f]=+g(m,sd).toFixed(F[f].dp);}
+      out[s.key].push({id:"ex"+i,at:new Date(2026,9,1+i,22).toISOString(),v,excluded:false});}}
+  return out;
+}
+function stateText(list,fields){
+  const valid=list.filter(r=>!r.excluded).length, n=list.length;
+  if(valid<2) return {t:`기록 ${n}/${MAX} · 2번 이상 기록하면 범위가 나와요`,ok:false};
+  const st=stability(list,fields);
+  if(st.state==="stable") return {t:`기록 ${n}/${MAX} · 평소 범위가 확실히 잡혔어요`,ok:true};
+  if(st.state==="check") return {t:`기록 ${n}/${MAX} · 평소 범위가 거의 잡혀가요`,ok:false};
+  return {t:`기록 ${n}/${MAX} · 더 기록할수록 정확해져요`,ok:false};
+}
+function metricRow(f,valid){
+  const d=F[f], dp=d.easyDp!=null?d.easyDp:d.dp;
+  const vals=valid.map(r=>r.v&&r.v[f]).filter(x=>typeof x==="number"&&isFinite(x)), t=stats(vals);
+  const name=`<div class="m-name"><b>${esc(d.easy)}</b><span>${esc(d.hint)}</span></div>`;
+  if(!t||t.sd==null) return `<li class="metric">${name}<div class="m-val wait"><strong>기록 2번부터</strong><em>${esc(d.easyUnit)}</em></div></li>`;
+  const lo=Math.max(t.mean-2*t.sd,d.min), hi=Math.min(t.mean+2*t.sd,d.max);
+  return `<li class="metric">${name}<div class="m-val"><strong>${fmt(lo,dp)} ~ ${fmt(hi,dp)}</strong><em>${esc(d.easyUnit)}</em></div></li>`;
+}
+function card(s,src){
+  const list=src[s.key]||[], valid=list.filter(r=>!r.excluded), st=stateText(list,s.fields);
+  const body=fields=>`<ul class="metrics">${fields.map(f=>metricRow(f,valid)).join("")}</ul>`;
+  const bodyFields=s.fields.filter(f=>!ENV.includes(f)), envFields=s.fields.filter(f=>ENV.includes(f));
+  const inner=!list.length
+    ?`<p class="empty">아직 기록이 없어요. 위에서 "${esc(s.name)}"을 고르고 측정값을 입력해 보세요.</p>`
+    :!valid.length?`<p class="empty">모든 기록이 제외되어 범위를 계산할 수 없어요.</p>`
+    :`${body(bodyFields)}${envFields.length?`<div class="env-label">그때의 주변 환경</div>${body(envFields)}`:""}`;
+  return `<div class="card" style="--c:var(--s-${s.color})">
+    <div class="card-head"><h3>${esc(s.name)}</h3>${demo?'<span class="pill example">예시</span>':""}</div>
+    <span class="card-state${st.ok?" ok":""}">${esc(st.t)}</span>${inner}</div>`;
+}
+function renderSummary(){
+  const src=demo?exampleData():data;
+  $("#demoBanner").hidden=!demo;
+  $("#sumList").innerHTML=GROUPS.map(g=>{
+    const members=SITS.filter(s=>s.group===g.key);
+    if(members.length>1) return `<div class="group" style="--c:var(--s-${g.color})"><div class="group-title">${esc(g.name)}</div><div class="cards">${members.map(s=>card(s,src)).join("")}</div></div>`;
+    return `<div class="group"><div class="cards">${card(members[0],src)}</div></div>`;
+  }).join("");
+  const total=SITS.reduce((a,s)=>a+data[s.key].length,0);
+  $("#demoBtn").hidden=total>0&&!demo;
+}
+
+function renderAll(){renderPicker();renderPanel();renderSummary();}
+
+/* ---------- export / backup ---------- */
+function download(filename,content,type){
+  const blob=new Blob([content],{type});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a"); a.href=url; a.download=filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+const stamp=()=>{const d=new Date(),p=n=>String(n).padStart(2,"0");return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}`;};
+function exportCsv(){
+  const fields=Object.keys(F);
+  const head=["상황","일시","공간·장소","기준선 제외",...fields.map(f=>`${F[f].label}(${F[f].unit})`),"메모"];
+  const q=v=>{const s=String(v==null?"":v);return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s;};
+  const lines=[head.map(q).join(",")];
+  for(const s of SITS) for(const r of sorted(s.key))
+    lines.push([s.full,fmtDate(r.at),r.ctx||"",r.excluded?"예":"",...fields.map(f=>r.v&&r.v[f]!=null?r.v[f]:""),r.note||""].map(q).join(","));
+  download(`공황_기준선_기록_${stamp()}.csv`,"\uFEFF"+lines.join("\n"),"text/csv;charset=utf-8");
+  toast("CSV 파일을 내려받았습니다");
+}
+function backup(){
+  download(`공황_기준선_백업_${stamp()}.json`,JSON.stringify({app:"panic-baseline",version:2,savedAt:new Date().toISOString(),data},null,2),"application/json");
+  toast("백업 파일을 내려받았습니다");
+}
+function restore(file){
+  const rd=new FileReader();
+  rd.onload=()=>{
+    try{
+      const o=JSON.parse(rd.result); const {out,skipped}=normalize(o&&o.data?o.data:o); let count=0;
+      const next={};
+      for(const s of SITS){
+        next[s.key]=out[s.key].filter(r=>r&&r.id&&r.at&&r.v&&typeof r.v==="object").slice(0,MAX);
+        count+=next[s.key].length;
+      }
+      if(!count){toast("백업 파일에서 기록을 찾지 못했어요. 이 페이지에서 저장한 백업 파일인지 확인해 주세요.",true);return;}
+      for(const s of SITS) data[s.key]=next[s.key];
+      renderAll(); persist(); toast(`백업에서 기록 ${count}개를 불러왔습니다`+(skipped?` (공간 종류가 엘리베이터·지하철·버스가 아닌 ${skipped}개는 제외)`:""));
+    }catch(e){toast("백업 파일을 읽지 못했어요. 파일이 손상되었거나 형식이 다릅니다.",true);}
+  };
+  rd.readAsText(file);
+}
+
+/* ---------- events ---------- */
+$("#sits").addEventListener("click",e=>{const b=e.target.closest("[data-k]");if(!b)return;current=b.dataset.k;renderPicker();renderPanel();
+  const p=$("#panel"); if(window.innerWidth<860) p.scrollIntoView({behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth",block:"start"});});
+$("#panel").addEventListener("click",onHistoryClick);
+$("#demoBtn").addEventListener("click",()=>{demo=!demo;$("#demoBtn").setAttribute("aria-pressed",String(demo));$("#demoBtn").textContent=demo?"내 기록 보기":"예시로 보기";renderSummary();});
+$("#exportBtn").addEventListener("click",exportCsv);
+$("#backupBtn").addEventListener("click",backup);
+$("#restoreBtn").addEventListener("click",()=>$("#restoreFile").click());
+$("#restoreFile").addEventListener("change",e=>{const f=e.target.files&&e.target.files[0]; if(f) restore(f); e.target.value="";});
+
+loadLocal();
+renderAll();
+})();
+</script>
+</body>
+</html>
